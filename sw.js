@@ -1,5 +1,5 @@
 // Guarda a tela do app no celular para abrir mesmo sem sinal. Os dados vão para o servidor (Apps Script), não passam por aqui.
-const V = "entregas-v1";
+const V = "entregas-v3";
 const ARQ = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png"];
 self.addEventListener("install", e => { e.waitUntil(caches.open(V).then(c => c.addAll(ARQ))); self.skipWaiting(); });
 self.addEventListener("activate", e => {

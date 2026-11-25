@@ -105,6 +105,29 @@ td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
 .cc .tx{padding:10px 12px}
 .lb{position:fixed;inset:0;background:rgba(5,8,11,.97);z-index:20;display:flex;flex-direction:column;padding:calc(env(safe-area-inset-top,0px) + 14px) 14px calc(env(safe-area-inset-bottom,0px) + 14px);gap:10px}
 .lb img{flex:1;min-height:0;width:100%;object-fit:contain}
+/* mapa das entregas */
+.mapa-lb{padding:calc(env(safe-area-inset-top,0px) + 10px) 12px calc(env(safe-area-inset-bottom,0px) + 10px);gap:8px;background:var(--bg)}
+.mp-corpo{flex:1;min-height:0;display:grid;grid-template-columns:1fr 330px;gap:10px}
+#mpMapa{height:100%;min-height:0;border-radius:10px;border:1px solid var(--line);background:#0b0f13}
+.mp-lista{overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px}
+.mp-lista .it{cursor:pointer}
+.mp-tempo{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.mp-tempo input[type=range]{flex:1;min-width:160px;accent-color:var(--acc)}
+@media(max-width:760px){.mp-corpo{grid-template-columns:1fr;grid-template-rows:1fr 36%}}
+.mk{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font:700 11px Inter,sans-serif;border:2px solid #0c1116;box-shadow:0 1px 4px rgba(0,0,0,.6)}
+.mk.ok{background:#3ecf8e;color:#06281a}.mk.pend{background:#f26d6d;color:#2a0707}
+.mk.agora{background:#f5b33c;color:#1a1204;animation:pulso 1.4s infinite}.mk.prox{background:#f26d6d;color:#2a0707;border:3px solid #f5b33c}
+.mk.oc{background:#3a3f46;color:#f26d6d;border-color:#f26d6d}.mk.aprox{border-style:dashed}
+@keyframes pulso{0%{box-shadow:0 0 0 0 rgba(245,179,60,.75)}70%{box-shadow:0 0 0 13px rgba(245,179,60,0)}100%{box-shadow:0 0 0 0 rgba(245,179,60,0)}}
+.mk-cam{display:inline-flex;align-items:center;gap:4px;background:var(--c);color:#0c1116;border-radius:14px;padding:3px 8px 3px 5px;font:700 11px Inter,sans-serif;white-space:nowrap;border:2px solid #fff;box-shadow:0 2px 10px rgba(0,0,0,.8)}
+.mk-cam svg{width:16px;height:16px}
+.mk-g{width:22px;height:22px;border-radius:5px;background:#e7edf3;color:#0c1116;display:grid;place-items:center;font:700 11px Inter,sans-serif;border:2px solid #0c1116}
+.leaflet-container{font-family:var(--fb);background:#0b0f13}
+.mp-tiles{filter:invert(1) hue-rotate(180deg) brightness(.82) contrast(.92) saturate(.6)}
+.leaflet-popup-content-wrapper,.leaflet-popup-tip{background:#141b22;color:#e7edf3;border:1px solid #27333f}
+.leaflet-popup-content{margin:10px 12px;font-size:12.5px;line-height:1.45}
+.leaflet-control-attribution{background:rgba(12,17,22,.75)!important;color:#8a9aaa!important}.leaflet-control-attribution a{color:#8a9aaa!important}
+.bol{display:inline-block;width:11px;height:11px;border-radius:50%;vertical-align:-1px;margin-right:4px;flex:none}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:18px;background:var(--panel2);border:1px solid var(--line);padding:10px 16px;border-radius:10px;z-index:30;font-weight:600;max-width:calc(100% - 32px)}
 .login{max-width:380px;margin:8vh auto 0}
 .chips{display:flex;gap:6px;flex-wrap:wrap}
@@ -205,7 +228,7 @@ function entrouOk(){
 }
 function montarAbas(){
   const t=$("#tabs"); if(!S.me){ t.hidden=true; return; }
-  const abas = S.me.perfil==="GESTOR" ? [["motorista","Motorista"],["roteirizar","Roteirizar"],["painel","Painel"],["canhotos","Canhotos"],["usuarios","Usuários"],["sair","Sair"]] : [["motorista","Minhas entregas"],["sair","Sair"]];
+  const abas = S.me.perfil==="GESTOR" ? [["motorista","Motorista"],["roteirizar","Roteirizar"],/* aba Separação fica de reserva (o ERP já imprime na ordem da rota): ["separacao","Separação"], */["painel","Painel"],["canhotos","Canhotos"],["usuarios","Usuários"],["sair","Sair"]] : [["motorista","Minhas entregas"],["sair","Sair"]];
   t.innerHTML = abas.map(([v,n])=>`<button data-tab="${v}" class="${S.view===v?"on":""}">${n}</button>`).join(""); t.hidden=false;
 }
 function vLogin(){
@@ -234,7 +257,11 @@ async function sair(forcado){
 
 /* ================= regra dos eventos (igual ao servidor) ================= */
 function aplicarEvento(r, ev){
-  r.evs = r.evs || []; if(r.evs.indexOf(ev.id)>=0) return false;
+  r.evs = r.evs || [];
+  // posição do caminhão (celular do motorista): 'pos' = envio periódico; qualquer evento com GPS também atualiza
+  if(ev.gps && ev.gps.la!=null && (!r.pos || ev.ts>r.pos.ts)) r.pos={la:ev.gps.la,lo:ev.gps.lo,acc:ev.gps.acc,ts:ev.ts};
+  if(ev.tipo==="pos") return true;
+  if(r.evs.indexOf(ev.id)>=0) return false;
   const p = ev.k ? r.paradas.find(x=>x.k===ev.k) : null;
   const feitas = r.paradas.filter(x=>x.st==="ok"||x.st==="oc").length;
   if(ev.tipo==="iniciar"){ if(!r.ini){ r.ini=ev.ts; r.st="and"; r.kmIni=ev.km||null; } }
@@ -286,7 +313,7 @@ async function sincronizar(){
 }
 function barraSync(){ const el=$("#syncbar"); if(el) el.outerHTML=htmlSync(); }
 function htmlSync(){
-  const fotos=S.fila.filter(j=>j.tipo==="foto").length, regs=S.fila.length-fotos;
+  const fotos=S.fila.filter(j=>j.tipo==="foto").length, regs=S.fila.filter(j=>j.tipo!=="foto"&&j.tipo!=="pos").length;
   let cls="", txt="Tudo enviado";
   if(S.fila.length){ cls = (S.online&&!S.sync.erro)?"pend":"off";
     txt = `${regs?regs+" registro(s)":""}${regs&&fotos?" e ":""}${fotos?fotos+" foto(s)":""} guardados no celular · ${S.sync.rodando?"enviando…":(S.online&&!S.sync.erro?"envio em instantes":"envia sozinho quando tiver sinal")}`; }
@@ -435,7 +462,7 @@ function pos(){
 /* ================= gestor: bases ================= */
 async function carregarBaseGestor(){
   try{ const [cli,cfg,fat]=await Promise.all([api("api_clientes",S.token),api("api_config",S.token),api("api_faturamento",S.token)]);
-    S.cli=cli.clientes; S.cidades=cli.cidades||{}; S.gerado=cli.gerado||""; S.cliMap=new Map(S.cli.map(c=>[c.c,c])); S.cfg=cfg; S.fat=fat; render();
+    S.cli=cli.clientes; S.cidades=cli.cidades||{}; S.rotasFix=cli.rotas||[]; S.gerado=cli.gerado||""; S.cliMap=new Map(S.cli.map(c=>[c.c,c])); S.cfg=cfg; S.fat=fat; render();
   }catch(e){ toast("Não carreguei a base de clientes: "+e.message); }
 }
 async function carregarDia(data){ S.diaAtivo=data; try{ S.rotasDia=await api("api_rotasDia",S.token,data); render(); }catch(e){ toast(e.message); } }
@@ -517,7 +544,7 @@ function vRoteirizar(){
     </div>
     <div class="card">
       <div class="row" style="justify-content:space-between;margin-bottom:8px"><h3>Paradas (${e.paradas.length})</h3>
-        <div class="row"><button class="mini" data-a="otimizar" ${e.paradas.length<3?"disabled":""}>Otimizar roteiro</button>${!e.id&&e.paradas.length>=4?`<button class="mini" data-a="abrirDividir">Dividir entre caminhões</button>`:""}${e.paradas.length?`<a class="btn mini" href="${gmapsRota(e)}" target="_blank" rel="noopener">Google Maps</a>`:""}</div></div>
+        <div class="row"><button class="mini" data-a="otimizar" ${e.paradas.length<3?"disabled":""}>Otimizar roteiro</button>${!e.id&&e.paradas.length>=4?`<button class="mini" data-a="abrirDividir">Dividir entre caminhões</button>`:""}${e.paradas.length?`<button class="mini pri" data-a="mapa">Mapa</button>`:""}</div></div>
       ${S.dividindo?vDividir():""}
       ${S.ganho?`<div class="note" style="margin-bottom:8px">Roteiro otimizado: <b>${fmtN(S.ganho.antes)} km → ${fmtN(S.ganho.depois)} km</b> (${fmtN(S.ganho.antes-S.ganho.depois)} km a menos, cerca de ${fmtMin((S.ganho.antes-S.ganho.depois)/VEL_KMH*60)} de estrada).</div>`:""}
       ${e.paradas.length?`<div class="tbl"><table><thead><tr><th>#</th><th>Cliente</th><th>Local</th><th class="n hide-m">Prev.</th><th>NF</th><th></th></tr></thead><tbody>
@@ -541,8 +568,8 @@ function vRoteirizar(){
       <div class="row">${e.id?`<button class="bad" data-a="excluir">${S.confExc?"Confirmar exclusão":"Excluir rota"}</button>`:""}<button class="pri grow" data-a="salvar" ${e.paradas.length&&e.placa&&!S.salvando?"":"disabled"}>${S.salvando?"Salvando…":e.id?"Salvar alterações":"Salvar rota"}</button></div>
       ${!e.placa&&e.paradas.length?`<div class="small mut">Escolha o caminhão para salvar.</div>`:""}
     </div>
-    <div class="card"><h3 style="margin-bottom:6px">Rotas de ${dBR(e.data)}</h3>
-      ${S.rotasDia.length?`<div class="list">${S.rotasDia.map(r=>{const f=r.paradas.filter(p=>p.st==="ok"||p.st==="oc").length; return `<div class="it"><span class="pill ${r.st==="fim"?"ok":r.st==="and"?"acc":""}">${r.st==="fim"?"finalizada":r.st==="and"?"em rota":"planejada"}</span><div class="grow"><b>${esc(r.placa)}</b> · ${esc(r.mot||"—")}<div class="small mut">${f}/${r.paradas.length} entregas · ${fmtN(r.kmPlan)} km</div></div><button class="mini" data-a="abrir" data-id="${esc(r.id)}">Abrir</button></div>`;}).join("")}</div>`:`<div class="small mut">Nenhuma rota salva nesta data.</div>`}
+    <div class="card"><div class="row" style="justify-content:space-between;margin-bottom:6px"><h3>Rotas de ${dBR(e.data)}</h3>${S.rotasDia.length?`<button class="mini pri" data-a="mapaTodas">Mapa de todas</button>`:""}</div>
+      ${S.rotasDia.length?`<div class="list">${S.rotasDia.map(r=>{const f=r.paradas.filter(p=>p.st==="ok"||p.st==="oc").length; return `<div class="it"><span class="pill ${r.st==="fim"?"ok":r.st==="and"?"acc":""}">${r.st==="fim"?"finalizada":r.st==="and"?"em rota":"planejada"}</span><div class="grow"><b>${esc(r.placa)}</b> · ${esc(r.mot||"—")}${r.nomeRota?` <span class="mut">· ${esc(r.nomeRota)}</span>`:""}${r.por==="simulacao"?` <span class="pill bad">simulada</span>`:""}<div class="small mut">${f}/${r.paradas.length} entregas · ${fmtN(r.kmPlan)} km</div></div><button class="mini" data-a="abrir" data-id="${esc(r.id)}">Abrir</button></div>`;}).join("")}</div>`:`<div class="small mut">Nenhuma rota salva nesta data.</div>`}
     </div>
     <details class="card"><summary style="cursor:pointer"><b>Caminhões</b> <span class="small mut">(${S.cfg.placas.length})</span></summary>
       <div class="row" style="margin-top:10px">${S.cfg.placas.map(x=>`<span class="pill">${esc(x)} <button class="mini ghost" style="min-height:20px;padding:0 4px" data-a="rmPlaca" data-v="${esc(x)}" aria-label="Remover">✕</button></span>`).join("")}</div>
@@ -584,6 +611,140 @@ function mapaSvg(ps){
     ${ps.map((p,i)=>!temLocal(p)?"":`<g><circle cx="${X(p).toFixed(1)}" cy="${Y(p).toFixed(1)}" r="9" fill="${p.st==="ok"?"#3ecf8e":p.st==="oc"?"#f26d6d":p.gps==="c"?"#1b242d":"#f5b33c"}" stroke="${p.gps==="c"?"#f5b33c":"#0c1116"}" stroke-width="1.5"/><text x="${X(p).toFixed(1)}" y="${(Y(p)+3.5).toFixed(1)}" text-anchor="middle" font-size="10" font-weight="700" fill="${p.gps==="c"?"#f5b33c":"#1a1204"}" font-family="Inter,sans-serif">${i+1}</text></g>`).join("")}
     <rect x="${(X(GARAGEM)-8).toFixed(1)}" y="${(Y(GARAGEM)-8).toFixed(1)}" width="16" height="16" rx="3" fill="#e7edf3"/><text x="${X(GARAGEM).toFixed(1)}" y="${(Y(GARAGEM)+4).toFixed(1)}" text-anchor="middle" font-size="10" font-weight="700" fill="#0c1116" font-family="Inter,sans-serif">G</text></svg>`;
 }
+/* ================= MAPA DAS ENTREGAS (Leaflet + OpenStreetMap, carregado só ao abrir) =================
+ * Bolinhas: verde = entregue · amarelo pulsando = no cliente agora · vermelho com borda amarela = próxima ·
+ * vermelho = falta entregar · cinza com ✕ = não entregue. Caminhão: posição enviada pelo celular do motorista
+ * (a cada 2 min com o app aberto) ou, sem ela, estimada pela última entrega. Linha do tempo: revê o dia em qualquer horário. */
+let LF=null; const MAPA={};
+const COR_ROTA=["#5aa9f0","#c77dff","#4dd0e1","#ff7a45","#a3e635","#f472b6","#facc15","#94a3b8"];
+const TXT_ST={ok:"Entregue",agora:"No cliente agora",prox:"Próxima",pend:"Falta entregar",oc:"Não entregue"};
+const COR_ST={ok:"#3ecf8e",agora:"#f5b33c",prox:"#f26d6d",pend:"#f26d6d",oc:"#6b7280"};
+function carregarLeaflet(){
+  if(LF) return LF;
+  LF=new Promise((ok,er)=>{ const b=HG+"cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/";
+    const c=document.createElement("link"); c.rel="stylesheet"; c.href=b+"leaflet.min.css"; document.head.appendChild(c);
+    const s=document.createElement("script"); s.src=b+"leaflet.min.js"; s.onload=()=>ok(window.L); s.onerror=()=>{ LF=null; er(new Error("Não consegui carregar o mapa (sem internet?)")); }; document.head.appendChild(s); });
+  return LF;
+}
+function rotasMapa(){
+  const l=[...S.rotasDia]; const e=S.ed;
+  if(e&&!e.id&&e.paradas.length){ previsoes(e); l.push(Object.assign({},e,{id:"__ed",placa:e.placa||"(nova rota)"})); }
+  return l;
+}
+const msDe = iso => iso ? new Date(iso).getTime() : null;
+const lerp = (a,b,f) => ({la:a.la+(b.la-a.la)*f, lo:a.lo+(b.lo-a.lo)*f});
+function estadoRota(r,T){
+  const ps=r.paradas.map((p,i)=>({p,i,s:"pend"}));
+  if(T==null) ps.forEach(x=>{ const s=x.p.st; x.s=s==="ok"?"ok":s==="oc"?"oc":s==="cli"?"agora":"pend"; });
+  else ps.forEach(x=>{ const c=msDe(x.p.cheg), d=msDe(x.p.said); x.s=(d&&T>=d)?(x.p.st==="oc"?"oc":"ok"):(c&&T>=c)?"agora":"pend"; });
+  const iniT=msDe(r.ini), fimT=msDe(r.fim);
+  const iniciou = T==null ? (!!r.ini||ps.some(x=>x.s!=="pend")) : (iniT!=null&&T>=iniT);
+  const acabou = T==null ? r.st==="fim" : (fimT!=null&&T>=fimT);
+  if(iniciou&&!acabou&&!ps.some(x=>x.s==="agora")){ const nx=ps.find(x=>x.s==="pend"); if(nx) nx.s="prox"; }
+  let cam=null; const ag=ps.find(x=>x.s==="agora");
+  const feitas=ps.filter(x=>(x.s==="ok"||x.s==="oc")&&x.p.said).sort((a,b)=>msDe(a.p.said)-msDe(b.p.said));
+  if(!iniciou) cam=Object.assign({},GARAGEM,{txt:r.saidaPrev?`Na garagem · saída prevista ${r.saidaPrev}`:"Na garagem",est:false});
+  else if(acabou) cam=Object.assign({},GARAGEM,{txt:`Voltou à garagem${r.fim?" às "+hBR(r.fim):""}`,est:false});
+  else if(T==null&&r.pos) cam={la:+r.pos.la,lo:+r.pos.lo,txt:`GPS do celular do motorista · ${hBR(r.pos.ts)} (há ${fmtMin(minEntre(r.pos.ts,new Date().toISOString()))})`,est:false};
+  else if(ag&&temLocal(ag.p)) cam={la:ag.p.la,lo:ag.p.lo,txt:`No cliente ${nomeCli(ag.p)} desde ${hBR(ag.p.cheg)}`,est:T==null};
+  else {
+    const ult=feitas[feitas.length-1], de=ult&&temLocal(ult.p)?pt(ult.p):GARAGEM, tDe=ult?msDe(ult.p.said):iniT;
+    if(T==null) cam=Object.assign({},de,{txt:ult?`Saiu de ${nomeCli(ult.p)} às ${hBR(ult.p.said)} (posição estimada)`:"Saiu da garagem (posição estimada)",est:true});
+    else { const nx=ps.filter(x=>x.s!=="ok"&&x.s!=="oc"&&x.p.cheg&&msDe(x.p.cheg)>T).sort((a,b)=>msDe(a.p.cheg)-msDe(b.p.cheg))[0];
+      const para=nx&&temLocal(nx.p)?pt(nx.p):GARAGEM, tPara=nx?msDe(nx.p.cheg):(fimT||msDe(r.retornoPrev));
+      const f=tPara&&tDe&&tPara>tDe?Math.min(1,Math.max(0,(T-tDe)/(tPara-tDe))):0;
+      cam=Object.assign(lerp(de,para,f),{txt:nx?`A caminho de ${nomeCli(nx.p)}`:"Voltando para a garagem",est:false}); }
+  }
+  return {ps,cam,iniciou,acabou};
+}
+function faixaTempo(rotas){
+  let a=null,b=null;
+  rotas.forEach(r=>{ const [hh,mm]=(r.saidaPrev||"07:00").split(":").map(Number); const s=new Date(r.data+"T00:00:00"); s.setHours(hh||7,mm||0,0,0);
+    const ini=Math.min(s.getTime(),msDe(r.ini)||Infinity), fim=Math.max(msDe(r.fim)||0,msDe(r.retornoPrev)||0,...r.paradas.map(p=>msDe(p.said)||0));
+    a=a==null?ini:Math.min(a,ini); b=b==null?fim:Math.max(b,fim); });
+  return a&&b&&b>a?[a-15*60000,b+15*60000]:null;
+}
+async function abrirMapa(sel){
+  lerEd(); let L; try{ L=await carregarLeaflet(); }catch(e){ toast(e.message); return; }
+  document.querySelector(".lb")?.remove(); clearInterval(MAPA.int); clearInterval(MAPA.play);
+  const d=document.createElement("div"); d.className="lb mapa-lb"; d.id="mapaLb";
+  d.innerHTML=`<div class="row" style="gap:8px;align-items:center"><h2 style="margin-right:auto">Mapa das entregas · <span id="mpData"></span></h2>
+      <select id="mpSel" style="max-width:340px"></select><a class="btn mini" id="mpGm" target="_blank" rel="noopener">Navegar no Google Maps</a><button class="mini" id="mpFechar">Fechar ✕</button></div>
+    <div class="mp-tempo small" id="mpTempo"></div>
+    <div class="mp-corpo"><div id="mpMapa"></div><div class="mp-lista" id="mpLista"></div></div>
+    <div class="legend small">${["ok","agora","prox","pend","oc"].map(s=>`<span><i class="mk ${s}" style="display:inline-grid;width:14px;height:14px;font-size:0;vertical-align:-3px;margin-right:4px;animation:none"></i>${TXT_ST[s]}</span>`).join("")}<span>🚚 Caminhão</span><span class="dim">Borda tracejada = local aproximado (centro da cidade)</span></div>`;
+  document.body.appendChild(d);
+  Object.assign(MAPA,{sel,T:null,data:S.ed.data,fit:true});
+  MAPA.m=L.map("mpMapa",{zoomControl:true,preferCanvas:false});
+  L.tileLayer(HG+"tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,className:"mp-tiles",attribution:"© OpenStreetMap"}).addTo(MAPA.m);
+  MAPA.g=L.layerGroup().addTo(MAPA.m); MAPA.mk={};
+  d.querySelector("#mpFechar").onclick=()=>{ clearInterval(MAPA.int); clearInterval(MAPA.play); d.remove(); };
+  d.querySelector("#mpSel").onchange=ev=>{ MAPA.sel=ev.target.value; MAPA.fit=true; desenharMapa(); };
+  d.addEventListener("input",ev=>{ if(ev.target.id==="mpT"){ clearInterval(MAPA.play); MAPA.play=null; MAPA.T=Number(ev.target.value); desenharMapa(true); } });
+  d.addEventListener("click",ev=>{ const b=ev.target.closest("[data-mp]"); if(!b) return; const a=b.dataset.mp;
+    if(a==="agora"){ clearInterval(MAPA.play); MAPA.play=null; MAPA.T=null; desenharMapa(); }
+    else if(a==="play"){ if(MAPA.play){ clearInterval(MAPA.play); MAPA.play=null; desenharMapa(true); return; }
+      const fx=MAPA.faixa; if(!fx) return; if(MAPA.T==null||MAPA.T>=fx[1]) MAPA.T=fx[0];
+      MAPA.play=setInterval(()=>{ MAPA.T+=4*60000; if(MAPA.T>=fx[1]){ MAPA.T=fx[1]; clearInterval(MAPA.play); MAPA.play=null; } desenharMapa(true); },120); desenharMapa(true); }
+    else if(a==="ir"){ const m=MAPA.mk[b.dataset.k]; if(m){ MAPA.m.setView(m.getLatLng(),Math.max(MAPA.m.getZoom(),13)); m.openPopup(); } }
+    else if(a==="rota"){ MAPA.sel=b.dataset.id; MAPA.fit=true; desenharMapa(); } });
+  setTimeout(()=>{ MAPA.m.invalidateSize(); desenharMapa(); },30);
+  MAPA.int=setInterval(async()=>{ if(!document.getElementById("mapaLb")){ clearInterval(MAPA.int); return; } if(MAPA.T!=null||document.hidden) return;
+    try{ S.rotasDia=await api("api_rotasDia",S.token,MAPA.data); desenharMapa(); }catch(e){} },60000);
+}
+function iconeCam(cor,placa){ return window.L.divIcon({className:"",iconSize:null,iconAnchor:[-8,34],
+  html:`<div class="mk-cam" style="--c:${cor}"><svg viewBox="0 0 24 24" fill="#0c1116"><path d="M3 6h11v9H3zM14 9h4l3 3.5V15h-7z"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/></svg>${esc(placa)}</div>`}); }
+function desenharMapa(soTempo){
+  const d=document.getElementById("mapaLb"); if(!d||!MAPA.m) return; const L=window.L;
+  const rotas=rotasMapa(); if(MAPA.sel!=="todas"&&!rotas.some(r=>r.id===MAPA.sel)) MAPA.sel="todas";
+  const cor=r=>COR_ROTA[Math.max(0,rotas.indexOf(r))%COR_ROTA.length];
+  const vis=MAPA.sel==="todas"?rotas:rotas.filter(r=>r.id===MAPA.sel);
+  d.querySelector("#mpData").textContent=dBR(MAPA.data);
+  if(!soTempo){ const s=d.querySelector("#mpSel"); s.innerHTML=`<option value="todas">Todas as rotas (${rotas.length})</option>`+rotas.map(r=>`<option value="${esc(r.id)}">${esc(r.placa)} · ${esc(r.mot||"sem motorista")}${r.nomeRota?" · "+esc(r.nomeRota):""}${r.por==="simulacao"?" (simulada)":""}</option>`).join(""); s.value=MAPA.sel; }
+  const um=vis.length===1?vis[0]:null, gm=d.querySelector("#mpGm"); gm.hidden=!um; if(um) gm.href=gmapsRota(um);
+  // linha do tempo
+  const fx=faixaTempo(vis); MAPA.faixa=fx; const tm=d.querySelector("#mpTempo");
+  const temExec=vis.some(r=>r.ini||r.paradas.some(p=>p.cheg));
+  if(fx&&temExec){ const v=MAPA.T==null?Math.min(fx[1],Math.max(fx[0],Date.now())):MAPA.T;
+    const html=`<button class="mini" data-mp="play">${MAPA.play?"❚❚ Pausar":"▶ Reproduzir o dia"}</button><input type="range" id="mpT" min="${fx[0]}" max="${fx[1]}" step="60000" value="${v}" aria-label="Horário"><b class="num" style="min-width:150px">${MAPA.T==null?"Situação atual":"Situação às "+hBR(new Date(MAPA.T).toISOString())}</b>${MAPA.T!=null?`<button class="mini ghost" data-mp="agora">Voltar para agora</button>`:""}`;
+    if(!soTempo||!tm.querySelector("#mpT")||MAPA.play) tm.innerHTML=html; else { tm.querySelector("b").textContent=MAPA.T==null?"Situação atual":"Situação às "+hBR(new Date(MAPA.T).toISOString()); const pb=tm.querySelector('[data-mp="play"]'); if(pb) pb.textContent=MAPA.play?"❚❚ Pausar":"▶ Reproduzir o dia"; }
+  } else tm.innerHTML=`<span class="mut">A linha do tempo aparece quando a rota começa (Cheguei / entregas registradas). Atualiza sozinho a cada minuto.</span>`;
+  // camadas
+  MAPA.g.clearLayers(); MAPA.mk={}; const bounds=[[GARAGEM.la,GARAGEM.lo]];
+  L.marker([GARAGEM.la,GARAGEM.lo],{icon:L.divIcon({className:"",iconSize:[22,22],html:`<div class="mk-g">G</div>`}),zIndexOffset:-100}).bindPopup("<b>Garagem</b> · Schuh Alimentos").addTo(MAPA.g);
+  const resumo=[];
+  vis.forEach(r=>{ const c=cor(r), E=estadoRota(r,MAPA.T), fade=MAPA.sel==="todas"?.55:.8;
+    const plan=[GARAGEM,...r.paradas.filter(temLocal).map(pt),GARAGEM].map(x=>[x.la,x.lo]);
+    L.polyline(plan,{color:c,weight:3,opacity:fade*.6,dashArray:"6 8"}).addTo(MAPA.g);
+    if(E.iniciou){ const fe=E.ps.filter(x=>(x.s==="ok"||x.s==="oc")&&temLocal(x.p)).sort((a,b)=>(msDe(a.p.said)||0)-(msDe(b.p.said)||0));
+      const ag=E.ps.find(x=>x.s==="agora"&&temLocal(x.p)); const fe2=ag?[...fe,ag]:fe;
+      const tr=[GARAGEM,...fe2.map(x=>pt(x.p))]; if(E.cam&&!E.acabou) tr.push(E.cam); if(E.acabou) tr.push(GARAGEM);
+      L.polyline(tr.map(x=>[x.la,x.lo]),{color:c,weight:5,opacity:.95}).addTo(MAPA.g); }
+    E.ps.forEach(x=>{ const p=x.p; if(!temLocal(p)) return; bounds.push([p.la,p.lo]);
+      const ic=L.divIcon({className:"",iconSize:[24,24],iconAnchor:[12,12],html:`<div class="mk ${x.s}${p.gps==="c"?" aprox":""}">${x.s==="oc"?"✕":x.i+1}</div>`});
+      const tcli=p.cheg&&p.said?minEntre(p.cheg,p.said):null;
+      const pop=`<b>${x.i+1}. ${esc(nomeCli(p))}</b><br><span style="color:#8a9aaa">${esc(p.cid)} · cód. ${esc(p.cod)} · ${esc(r.placa)}</span><br>
+        <span class="bol" style="background:${COR_ST[x.s]}"></span>${TXT_ST[x.s]}<br>Previsto ${hBR(p.prev)}${p.cheg&&(MAPA.T==null||msDe(p.cheg)<=MAPA.T)?` · chegou ${hBR(p.cheg)}`:""}${p.said&&(MAPA.T==null||msDe(p.said)<=MAPA.T)?` · saiu ${hBR(p.said)}${tcli!=null?` (${fmtMin(tcli)})`:""}`:""}
+        ${p.valor?`<br>R$ ${esc(p.valor)}`:""}${p.nf?` · NF ${esc(p.nf)}`:""}${p.oc&&x.s==="oc"?`<br><b style="color:#f26d6d">${esc(p.oc.tipo)}</b> ${esc(p.oc.obs||"")}`:""}${p.gps==="c"?`<br><i style="color:#8a9aaa">Local aproximado (centro da cidade)</i>`:""}`;
+      MAPA.mk[r.id+"|"+p.k]=L.marker([p.la,p.lo],{icon:ic,zIndexOffset:x.s==="agora"||x.s==="prox"?500:0}).bindPopup(pop).addTo(MAPA.g); });
+    if(E.cam&&(E.iniciou||vis.length===1)){ const m=L.marker([E.cam.la,E.cam.lo],{icon:iconeCam(c,r.placa),zIndexOffset:1000}).bindPopup(`<b>${esc(r.placa)}</b> · ${esc(r.mot||"sem motorista")}<br>${esc(E.cam.txt)}`).addTo(MAPA.g); MAPA.mk[r.id+"|cam"]=m; if(E.iniciou&&!E.acabou) bounds.push([E.cam.la,E.cam.lo]); }
+    resumo.push({r,E,c});
+  });
+  if(MAPA.fit&&bounds.length>1){ MAPA.m.fitBounds(bounds,{padding:[30,30],maxZoom:14}); MAPA.fit=false; }
+  // lista lateral
+  const lista=d.querySelector("#mpLista");
+  if(!um) lista.innerHTML=`<h3 style="margin-bottom:8px">Rotas do dia</h3><div class="list">${resumo.map(({r,E,c})=>{ const n=k=>E.ps.filter(x=>x.s===k).length, ok=n("ok"), oc=n("oc"), tot=E.ps.length;
+      const pr=E.ps.find(x=>x.s==="agora")||E.ps.find(x=>x.s==="prox");
+      return `<div class="it" data-mp="rota" data-id="${esc(r.id)}"><span class="bol" style="background:${c};width:14px;height:14px"></span><div class="grow"><b>${esc(r.placa)}</b> · ${esc(r.mot||"—")}${r.por==="simulacao"?` <span class="pill bad">simulada</span>`:""}
+        <div class="small mut">${esc(r.nomeRota||"")}${r.nomeRota?" · ":""}${ok}/${tot} entregues${oc?` · ${oc} não entregue(s)`:""}</div>
+        <div style="height:5px;background:var(--panel2);border-radius:3px;margin:5px 0 3px;overflow:hidden;display:flex"><i style="width:${100*ok/tot}%;background:#3ecf8e"></i><i style="width:${100*oc/tot}%;background:#6b7280"></i></div>
+        <div class="small dim">${E.acabou?"Rota finalizada":!E.iniciou?`Ainda não saiu · previsto ${esc(r.saidaPrev||"")}`:pr?`${pr.s==="agora"?"No cliente":"Próxima"}: ${esc(nomeCli(pr.p))}`:""}</div></div></div>`; }).join("")}</div>`;
+  else { const {E,c}=resumo[0], r=um, ok=E.ps.filter(x=>x.s==="ok").length;
+    lista.innerHTML=`<div class="row" style="justify-content:space-between;margin-bottom:6px"><div><span class="lbl">${esc(r.placa)} · ${esc(r.mot||"sem motorista")}</span><h3>${ok} de ${E.ps.length} entregues</h3></div><span class="bol" style="background:${c};width:16px;height:16px"></span></div>
+      <div class="small mut" style="margin-bottom:8px">${esc(E.cam?.txt||"")}${r.retornoPrev?` · retorno previsto ${hBR(r.retornoPrev)}`:""}</div>
+      <div class="list">${E.ps.map(x=>{ const p=x.p; return `<div class="it" data-mp="ir" data-k="${esc(r.id+"|"+p.k)}"><span class="bol" style="background:${COR_ST[x.s]};${x.s==="prox"?"box-shadow:0 0 0 2px #f5b33c;":""}"></span><div class="grow"><div class="ell"><b>${x.i+1}. ${esc(nomeCli(p))}</b> <span class="mut">· ${esc(p.cid)}</span></div>
+        <div class="small mut">${x.s==="ok"||x.s==="oc"?`${TXT_ST[x.s]} ${hBR(p.said)}${p.cheg&&p.said?` · ${fmtMin(minEntre(p.cheg,p.said))} no cliente`:""}`:x.s==="agora"?`No cliente desde ${hBR(p.cheg)}`:`Previsto ${hBR(p.prev)}`}</div></div></div>`; }).join("")}</div>`; }
+}
 function lerEd(){ const e=S.ed; if(!e||S.view!=="roteirizar") return;
   const v=id=>$("#"+id)?.value; if(v("edData")!==undefined){ e.data=v("edData")||e.data; e.placa=v("edPlaca"); e.mot=v("edMot"); e.saidaPrev=v("edSaida")||"07:30"; }
   document.querySelectorAll("[data-nf]").forEach(i=>{ const p=e.paradas.find(x=>x.k===i.dataset.nf); if(p) p.nf=i.value.trim(); }); }
@@ -596,6 +757,8 @@ async function acaoRoteirizar(a,el){
   if(a==="colar"){ const linhas=($("#cola").value||"").split(/\r?\n/).map(l=>l.trim()).filter(Boolean); let ok=0,fal=[];
     linhas.forEach(l=>{ const [cod,nf,vol,valor]=l.split(/[;\t]/).map(x=>(x||"").trim()); const c=S.cliMap.get(Number(cod)); if(!c){fal.push(cod);return;} const p=paradaDeCliente(c); p.nf=nf||""; p.vol=vol||""; p.valor=valor||""; e.paradas.push(p); ok++; });
     S.ganho=null; render(); toast(`${ok} cliente(s) adicionados${fal.length?` · não encontrados: ${fal.slice(0,5).join(", ")}`:""}`); return; }
+  if(a==="mapa"){ abrirMapa(e.id||"__ed"); return; }
+  if(a==="mapaTodas"){ abrirMapa("todas"); return; }
   if(a==="otimizar"){ const antes=custoRota(e.paradas); e.paradas=otimizar(e.paradas); S.ganho={antes,depois:custoRota(e.paradas)}; render(); return; }
   if(a==="abrirDividir"){ S.dividindo=true; S.divPlacas=S.divPlacas||[]; render(); return; }
   if(a==="fecharDividir"){ S.dividindo=false; render(); return; }
@@ -696,7 +859,9 @@ function filtrosHtml(){
 }
 function vPainel(){
   const rotas=filtrar(dadosPeriodo()), P=achatar(rotas);
-  let h=(S.demo?`<div class="banner" style="margin-bottom:14px">DADOS DE EXEMPLO — clientes reais, entregas e horários simulados. Nada disso está gravado.</div>`:"")+filtrosHtml();
+  const nSim=S.demo?0:rotas.filter(r=>r.por==="simulacao").length;
+  let h=(S.demo?`<div class="banner" style="margin-bottom:14px">DADOS DE EXEMPLO — clientes reais, entregas e horários simulados. Nada disso está gravado.</div>`:"")
+    +(nSim?`<div class="banner" style="margin-bottom:14px">INCLUI ${nSim} ROTA(S) SIMULADA(S) — tudo como planejado, sem fotos de canhoto. Não vão para o Power BI; para tirar, abra a rota em Roteirizar e use Excluir rota.</div>`:"")+filtrosHtml();
   if(!P.length){
     h+=`<div class="card empty" style="margin-bottom:14px"><h3>${S.carregando.p?"Carregando…":"Ainda não há entregas registradas neste período"}</h3><p>Os indicadores aparecem assim que os motoristas usarem o <b>Cheguei</b> e a foto do canhoto.</p><button class="pri" data-a="demo">Ver o painel com dados de exemplo</button></div>`;
     return h+baseRastreador();
@@ -862,6 +1027,168 @@ async function acaoUsuarios(a,el){
   }catch(e){ toast(e.message); }
 }
 
+/* ================= SEPARAÇÃO: pedidos do ERP (PDF) na ordem do roteiro ================= */
+const LIB_PDFJS = HG+"cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+const LIB_PDFJS_W = HG+"cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+const LIB_PDFLIB = HG+"cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js";
+const _libs = {};
+function lib(src){ return _libs[src]||(_libs[src]=new Promise((res,rej)=>{ const s=document.createElement("script"); s.src=src; s.onload=()=>res(); s.onerror=()=>{ delete _libs[src]; rej(new Error("Não consegui carregar a leitura de PDF (sem internet?)")); }; document.head.appendChild(s); })); }
+const normCid = s => String(s||"").normalize("NFD").replace(/[̀-ͯ]/g,"").toUpperCase().replace(/[.\-']/g," ").replace(/\s+/g," ").trim();
+const numBR = s => Number(String(s||"").replace(/\./g,"").replace(",","."))||0;
+async function linhasPagina(page){
+  const tc=await page.getTextContent();
+  const its=tc.items.filter(i=>i.str&&i.str.trim()).map(i=>({x:i.transform[4],y:i.transform[5],s:i.str}));
+  its.sort((a,b)=>b.y-a.y||a.x-b.x); const L=[];
+  its.forEach(i=>{ const l=L.find(z=>Math.abs(z.y-i.y)<3); if(l) l.it.push(i); else L.push({y:i.y,it:[i]}); });
+  return L.sort((a,b)=>b.y-a.y).map(l=>l.it.sort((a,b)=>a.x-b.x).map(i=>i.s).join(" ").replace(/\s+/g," ").trim());
+}
+function lerCabecalho(ls){
+  const t=ls.join("\n"), m=(re)=>{ const r=t.match(re); return r?r.slice(1):null; };
+  const ped=m(/(\d{2}\/\d{2}\/\d{4})\s+(\d{4,})/), cli=m(/CLIENTE[.:\s]*(\d+)\s+(.*?)(?=\s+CNPJ|\s+CPF|\n|$)/), cid=m(/CIDADE[.:\s]*(.+?)\s+RS\b/);
+  const fan=m(/FANTASIA[.:\s]*(.*?)(?=\s+IE[.:]|\n|$)/), tot=m(/TOTAL DO PEDIDO[.:\s]*([\d.]+,\d{2})/);
+  const itens=ls.filter(l=>/^\d{1,6}\s+\d+(?:[.,]\d+)?\s+[A-Z]{1,3}\s+\S/.test(l)).length;
+  return { data:ped&&ped[0], num:ped&&ped[1], cod:cli?Number(cli[0]):null, nome:cli?cli[1].trim():"", cid:cid?cid[0].trim():"", fant:fan?fan[0].trim():"", total:tot?numBR(tot[0]):null, itens };
+}
+async function lerPdfsSep(files){
+  if(!S.cli.length){ toast("Aguarde carregar a base de clientes e tente de novo."); return; }
+  S.sep={rotas:[],arqs:[],paradas:[],escolha:{},fora:[],ordem:S.sep?.ordem||"entrega",porRota:S.sep?S.sep.porRota!==false:true,lendo:true,saida:null}; render();
+  try{
+    await lib(LIB_PDFJS); pdfjsLib.GlobalWorkerOptions.workerSrc=LIB_PDFJS_W;
+    for(const f of files){ const ai=S.sep.arqs.length;
+      const buf=await f.arrayBuffer(); const doc=await pdfjsLib.getDocument({data:buf.slice(0)}).promise;
+      const peds=[];
+      for(let i=1;i<=doc.numPages;i++){ const h=lerCabecalho(await linhasPagina(await doc.getPage(i))); const ult=peds[peds.length-1];
+        if(ult&&(!h.num||h.num===ult.num)){ ult.pags.push(i-1); ult.itens+=h.itens; if(h.total!=null) ult.total=h.total; continue; }
+        peds.push({...h,pags:[i-1]}); }
+      const porCli=new Map();
+      peds.forEach(p=>{ const ch=p.cod!=null?"c"+p.cod:"n"+normCid(p.nome)+"|"+normCid(p.cid); if(!porCli.has(ch)) porCli.set(ch,[]); porCli.get(ch).push(p); });
+      const cidN={}; Object.entries(S.cidades).forEach(([k,v])=>cidN[normCid(k)]=v);
+      let paradas=[...porCli.values()].map(ps=>{ const h=ps[0], c=h.cod!=null&&S.cliMap.get(h.cod); let p;
+        if(c){ p=paradaDeCliente(c); }
+        else { p={k:uid(),cod:h.cod??"",nome:h.nome,fant:h.fant,cid:h.cid,end:"",nf:"",vol:"",valor:"",st:"pend",naoAchado:true}; const cc=cidN[normCid(h.cid)]; if(cc){ p.la=cc[0]; p.lo=cc[1]; p.gps="c"; } else p.gps="n"; }
+        p.peds=ps; p.arq=ai; p.total=ps.reduce((s,x)=>s+(x.total||0),0); p.itens=ps.reduce((s,x)=>s+x.itens,0); return p; });
+      paradas.filter(p=>!temLocal(p)).forEach(p=>{ const viz=paradas.find(q=>temLocal(q)&&normCid(q.cid)===normCid(p.cid)); if(viz){ p.la=viz.la; p.lo=viz.lo; p.gps="c"; } });
+      S.sep.arqs.push({nome:f.name.replace(/\.pdf$/i,""),buf}); S.sep.paradas.push(...paradas);
+    }
+    agruparSep();
+  }catch(e){ toast(e.message||String(e)); }
+  S.sep.lendo=false; render();
+}
+/* rota de cada cliente: código fixo na rota > cidade de uma rota só > escolha do usuário > rota com mais cidades "certas" no lote */
+function rotaDaParada(p,cert){
+  const R=S.rotasFix||[], ck=normCid(p.cid);
+  const porCli=R.find(r=>r.cl.includes(Number(p.cod))); if(porCli) return {rota:porCli.n,cand:[porCli.n]};
+  const cand=R.filter(r=>r.ci.includes(ck)).map(r=>r.n);
+  if(S.sep.escolha[ck]) return {rota:S.sep.escolha[ck],cand,amb:cand.length>1||!cand.length,escolhida:true};
+  if(cand.length===1) return {rota:cand[0],cand};
+  if(!cand.length) return {rota:"Sem rota: "+(p.cid||"?"),cand,amb:true,semRota:true};
+  if(cert){ const best=cand.map(n=>[n,cert[n]||0]).sort((a,b)=>b[1]-a[1]); if(best[0][1]>0&&best[0][1]>(best[1]?.[1]||0)) return {rota:best[0][0],cand,amb:true,sugerida:true}; }
+  if(S.sep.cidLote){ /* empate: a rota que cobre mais cidades deste PDF (ex.: São Borja + Itaqui -> "São Borja - Itaqui") */
+    const best=cand.map(n=>[n,R.find(r=>r.n===n).ci.filter(c=>S.sep.cidLote.has(c)).length]).sort((a,b)=>b[1]-a[1]);
+    if(best[0][1]>1&&best[0][1]>(best[1]?.[1]||0)) return {rota:best[0][0],cand,amb:true,sugerida:true}; }
+  return {rota:null,cand,amb:true};
+}
+function agruparSep(){
+  const sp=S.sep; sp.saida=null; const grupos=new Map(), add=(nome,p)=>{ if(!grupos.has(nome)) grupos.set(nome,[]); grupos.get(nome).push(p); };
+  if(!sp.porRota||!(S.rotasFix||[]).length){ sp.amb=[]; sp.paradas.forEach(p=>add(sp.arqs[p.arq].nome,p)); }
+  else {
+    sp.cidLote=new Set(sp.paradas.map(p=>normCid(p.cid)));
+    const cert={}; sp.paradas.forEach(p=>{ const x=rotaDaParada(p); if(!x.amb&&x.rota) cert[x.rota]=(cert[x.rota]||0)+1; });
+    const amb=new Map();
+    sp.paradas.forEach(p=>{ const x=rotaDaParada(p,cert); const ck=normCid(p.cid);
+      if(x.amb){ const a=amb.get(ck)||{ck,cid:p.cid,cand:x.cand,rota:x.rota,n:0,sugerida:x.sugerida,semRota:x.semRota,escolhida:x.escolhida}; a.n++; amb.set(ck,a); }
+      add(x.rota||"A definir",p); });
+    sp.amb=[...amb.values()].sort((a,b)=>(a.rota?1:0)-(b.rota?1:0)||a.cid.localeCompare(b.cid));
+  }
+  const ant=new Map(sp.rotas.map(r=>[r.nome,r]));
+  sp.rotas=[...grupos.entries()].filter(([n])=>!sp.fora.includes(n)).sort((a,b)=>(a[0]==="A definir")-(b[0]==="A definir")||a[0].localeCompare(b[0])).map(([nome,ps])=>{
+    const velho=ant.get(nome); let ord;
+    if(velho&&velho.paradas.length===ps.length&&ps.every(p=>velho.paradas.includes(p))) ord=velho.paradas; else ord=otimizar(ps);
+    const peds=ps.reduce((s,p)=>s+p.peds.length,0), pags=ps.reduce((s,p)=>s+p.peds.reduce((t,x)=>t+x.pags.length,0),0);
+    return {nome,paradas:ord,peds,paginas:pags,kmAntes:velho?velho.kmAntes:custoRota(ps),kmDepois:custoRota(ord)}; });
+}
+const latin = s => String(s??"").replace(/[–—]/g,"-").replace(/[^\x20-\x7E\xA0-\xFF]/g,"?");
+async function gerarPdfSep(){
+  const sp=S.sep; if(!sp||!sp.rotas.length) return; sp.gerando=true; render();
+  try{
+    await lib(LIB_PDFLIB); const {PDFDocument,StandardFonts,rgb}=PDFLib;
+    const out=await PDFDocument.create(), F=await out.embedFont(StandardFonts.Helvetica), FB=await out.embedFont(StandardFonts.HelveticaBold);
+    const carr=sp.ordem==="carregamento", agora=new Date();
+    const srcs=[]; for(const a of sp.arqs) srcs.push(await PDFDocument.load(a.buf.slice(0)));
+    for(const r of sp.rotas){
+      const n=r.paradas.length;
+      const seq=r.paradas.map((p,i)=>({p,ent:i+1})); if(carr) seq.reverse();
+      /* folha de resumo da rota */
+      let pg=null,y=0; const linha=(txt,x,sz,f,cor)=>pg.drawText(latin(txt),{x,y,size:sz,font:f||F,color:cor||rgb(0,0,0)});
+      const nova=()=>{ pg=out.addPage([595.28,841.89]); y=800;
+        linha("ROTA: "+r.nome,40,16,FB); y-=20;
+        linha(`Separação na ordem de ${carr?"CARREGAMENTO (última entrega primeiro)":"ENTREGA (1ª entrega primeiro)"} · ${n} clientes · ${r.peds} pedidos · gerado ${pad(agora.getDate())}/${pad(agora.getMonth()+1)}/${agora.getFullYear()} ${pad(agora.getHours())}:${pad(agora.getMinutes())}`,40,9); y-=22;
+        linha("Ordem",40,9,FB); linha("Entrega",80,9,FB); linha("Cliente",125,9,FB); linha("Cidade",345,9,FB); linha("Pedidos",450,9,FB); linha("Total R$",515,9,FB); y-=6;
+        pg.drawLine({start:{x:40,y},end:{x:555,y},thickness:.6}); y-=13; };
+      nova();
+      seq.forEach(({p,ent},i)=>{ if(y<50) nova();
+        linha(String(i+1),40,10,FB); linha(String(ent)+"ª",80,10); linha((p.cod?p.cod+" ":"")+(p.fant||p.nome||"").slice(0,38),125,10);
+        linha((p.cid||"").slice(0,18),345,10); linha(p.peds.map(x=>x.num).join(", ").slice(0,14),450,9); linha(fmtN(p.total,2),515,10); y-=16; });
+      y-=6; if(y<50) nova(); linha(`Total da rota: R$ ${fmtN(r.paradas.reduce((s,p)=>s+p.total,0),2)}`,40,11,FB);
+      /* pedidos na ordem, com a etiqueta de posição */
+      let pos=0;
+      for(const {p,ent} of seq){ pos++;
+        for(const ped of p.peds){ const pags=await out.copyPages(srcs[p.arq],ped.pags);
+          pags.forEach(pp=>{ out.addPage(pp); const {width}=pp.getSize();
+            const tag=latin(`${carr?`CARREGAR ${pos}º/${n} · entrega ${ent}ª`:`ENTREGA ${ent}ª/${n}`} · ${r.nome}`).slice(0,60);
+            const w=Math.min(width-24,FB.widthOfTextAtSize(tag,9.5)+14);
+            pp.drawRectangle({x:width-12-w,y:4,width:w,height:18,color:rgb(1,1,1),borderColor:rgb(0,0,0),borderWidth:.8});
+            pp.drawText(tag,{x:width-12-w+7,y:9.5,size:9.5,font:FB}); }); } }
+    }
+    const bytes=await out.save(); if(sp.saida) URL.revokeObjectURL(sp.saida.url);
+    sp.saida={url:URL.createObjectURL(new Blob([bytes],{type:"application/pdf"})),nome:`Separacao ${pad(agora.getDate())}-${pad(agora.getMonth()+1)}-${agora.getFullYear()} ${pad(agora.getHours())}h${pad(agora.getMinutes())}.pdf`,pags:out.getPageCount()};
+  }catch(e){ toast("Não gerei o PDF: "+(e.message||e)); }
+  sp.gerando=false; render();
+}
+function vSeparacao(){
+  const sp=S.sep;
+  const ajuda=`<div class="card grid"><h2>Separação na ordem do roteiro</h2>
+    <div class="small mut">1. No ERP, em <b>Gerenciador de Pedido</b>, marque os pedidos de todos os romaneios e use <b>Imprimir Pedido</b> salvando em <b>PDF</b>.<br>2. Escolha aqui o PDF. O app separa por rota pela cidade (lista rotas_cidades.csv); se a cidade estiver em mais de uma rota, ele pergunta.<br>3. Confira a ordem e toque em <b>Gerar PDF para imprimir</b>. Sai uma folha-resumo por rota e os pedidos na ordem, cada um com a etiqueta da posição no rodapé.</div>
+    <div class="row"><label class="btn pri" style="cursor:pointer">Escolher PDF(s) do ERP<input type="file" id="sepArq" accept="application/pdf,.pdf" multiple hidden></label>
+      <div class="chips"><button data-a="sepOrdem" data-v="entrega" class="${(sp?.ordem||"entrega")==="entrega"?"on":""}">Ordem de entrega</button><button data-a="sepOrdem" data-v="carregamento" class="${sp?.ordem==="carregamento"?"on":""}">Ordem de carregamento</button></div></div>
+    <div class="chips"><button data-a="sepPorRota" data-v="1" class="${sp?.porRota!==false?"on":""}">Separar por rota (pela cidade)</button><button data-a="sepPorRota" data-v="0" class="${sp?.porRota===false?"on":""}">Cada PDF é uma rota</button></div>
+    <div class="small dim">Entrega: a 1ª entrega sai em cima. Carregamento: a última entrega sai em cima (é a primeira a entrar no caminhão).</div></div>`;
+  if(!S.cli.length) return ajuda+`<div class="card empty"><h3>Carregando clientes…</h3></div>`;
+  if(!sp) return ajuda;
+  if(sp.lendo) return ajuda+`<div class="card empty"><h3>Lendo os pedidos…</h3></div>`;
+  const tagLoc={r:"Rastreador",a:"App",c:"Cidade",n:"Sem local"};
+  const falta=sp.rotas.some(r=>r.nome==="A definir"), nomesR=(S.rotasFix||[]).map(r=>r.n).sort((a,b)=>a.localeCompare(b));
+  const ambCard=sp.amb&&sp.amb.length?`<div class="card" style="margin-top:14px"><h3 style="margin-bottom:4px">Confira a rota destas cidades</h3><div class="small mut" style="margin-bottom:8px">Cidades que estão em mais de uma rota ou em nenhuma. ${falta?"<b style=\"color:var(--acc)\">Escolha a rota das marcadas para liberar a impressão.</b>":"O app já sugeriu pela rota das outras cidades do PDF."}</div>
+    <div class="tbl"><table><tbody>${sp.amb.map(a=>`<tr><td><b>${esc(a.cid)}</b><div class="small mut">${a.n} cliente(s)${a.cand.length?" · rotas: "+esc(a.cand.join(", ")):" · não está em nenhuma rota"}</div></td>
+      <td><select data-sep-esc="${esc(a.ck)}" style="${a.rota?"":"border-color:var(--acc)"}"><option value="">${a.rota?(a.semRota?"Rota própria ("+esc(a.cid)+")":"Sugestão: "+esc(a.rota)):"Escolha a rota…"}</option>
+      ${[...a.cand,...nomesR.filter(n=>!a.cand.includes(n))].map(n=>`<option value="${esc(n)}" ${a.escolhida&&a.rota===n?"selected":""}>${esc(n)}${a.cand.includes(n)?" ★":""}</option>`).join("")}</select></td></tr>`).join("")}</tbody></table></div></div>`:"";
+  return ajuda+ambCard+(sp.rotas.length?`<div class="card row" style="margin-top:14px"><button class="pri" data-a="sepGerar" ${sp.gerando||falta?"disabled":""}>${sp.gerando?"Gerando…":"Gerar PDF para imprimir"}</button>
+      ${sp.saida?`<a class="btn" href="${sp.saida.url}" target="_blank" rel="noopener">Abrir e imprimir (${sp.saida.pags} pág.)</a><a class="btn ghost" href="${sp.saida.url}" download="${esc(sp.saida.nome)}">Baixar PDF</a>`:""}</div>`:"")+
+    sp.rotas.map((r,ri)=>{ const sem=r.paradas.filter(p=>p.gps==="n").length, nao=r.paradas.filter(p=>p.naoAchado).length;
+      return `<div class="card" style="margin-top:14px"><div class="row" style="justify-content:space-between;margin-bottom:8px"><h3>${esc(r.nome)}</h3>
+        <div class="row"><span class="small mut">${r.paradas.length} clientes · ${r.peds} pedidos · ${r.paginas} pág. · ${fmtN(r.kmDepois)} km (antes ${fmtN(r.kmAntes)} km)</span>
+        <button class="mini" data-a="sepOtim" data-r="${ri}">Otimizar de novo</button><button class="mini" data-a="sepRota" data-r="${ri}">Levar para Roteirizar</button><button class="mini ghost" data-a="sepTira" data-r="${ri}" style="color:var(--bad)">✕</button></div></div>
+        ${sem||nao?`<div class="note" style="margin-bottom:8px">${sem?`${sem} cliente(s) sem localização foram para o fim: ajuste com ▲▼. `:""}${nao?`${nao} cliente(s) não estão na base do app.`:""}</div>`:""}
+        <div class="tbl"><table><thead><tr><th>#</th><th>Cliente</th><th>Local</th><th>Pedidos</th><th class="n">Total R$</th><th></th></tr></thead><tbody>
+        ${r.paradas.map((p,i)=>`<tr><td class="num">${i+1}</td><td style="min-width:150px"><b>${esc(nomeCli(p))}</b><div class="small mut">${esc(p.cid)} · cód. ${esc(p.cod)} · ${p.itens} itens</div></td>
+          <td><span class="gps ${p.gps}">${tagLoc[p.gps]||""}</span></td><td class="small">${p.peds.map(x=>esc(x.num)).join("<br>")}</td><td class="n num">${fmtN(p.total,2)}</td>
+          <td style="white-space:nowrap"><button class="mini ghost" data-a="sepSobe" data-r="${ri}" data-i="${i}" aria-label="Subir">▲</button><button class="mini ghost" data-a="sepDesce" data-r="${ri}" data-i="${i}" aria-label="Descer">▼</button></td></tr>`).join("")}
+        </tbody></table></div></div>`; }).join("");
+}
+function acaoSeparacao(a,el){
+  const sp=S.sep, r=sp&&sp.rotas[Number(el.dataset.r)];
+  if(a==="sepOrdem"){ if(!S.sep) S.sep={rotas:[],ordem:"entrega"}; S.sep.ordem=el.dataset.v; S.sep.saida=null; render(); return; }
+  if(a==="sepGerar"){ gerarPdfSep(); return; }
+  if(a==="sepPorRota"){ if(!S.sep) S.sep={rotas:[],ordem:"entrega"}; S.sep.porRota=el.dataset.v==="1"; if(S.sep.paradas){ S.sep.fora=[]; agruparSep(); } render(); return; }
+  if(!r) return;
+  if(a==="sepSobe"||a==="sepDesce"){ const i=Number(el.dataset.i), j=a==="sepSobe"?i-1:i+1; if(j<0||j>=r.paradas.length) return; [r.paradas[i],r.paradas[j]]=[r.paradas[j],r.paradas[i]]; r.kmDepois=custoRota(r.paradas); sp.saida=null; render(); return; }
+  if(a==="sepOtim"){ r.paradas=otimizar(r.paradas); r.kmDepois=custoRota(r.paradas); sp.saida=null; render(); return; }
+  if(a==="sepTira"){ sp.fora.push(r.nome); sp.rotas.splice(Number(el.dataset.r),1); sp.saida=null; render(); return; }
+  if(a==="sepRota"){ S.rasc=[]; novaRota(hoje());
+    S.ed.paradas=r.paradas.map(p=>{ const q={...p,k:uid(),valor:fmtN(p.total,2)}; delete q.peds; delete q.total; delete q.itens; delete q.naoAchado; delete q.arq; return q; });
+    S.view="roteirizar"; render(); window.scrollTo(0,0); toast("Rota montada na ordem da separação. Escolha o caminhão e o motorista e salve."); return; }
+}
+
 /* ================= navegação e eventos ================= */
 function render(){
   const app=$("#app"); montarAbas();
@@ -870,6 +1197,7 @@ function render(){
   else if(S.view==="roteirizar"){ if(!S.ed) novaRota(); if(S.diaAtivo!==S.ed.data) carregarDia(S.ed.data); app.innerHTML=vRoteirizar(); }
   else if(S.view==="painel"||S.view==="canhotos"){ if(S.perAtivo!==S.periodo) carregarPeriodo(); app.innerHTML=S.view==="painel"?vPainel():vCanhotos(); }
   else if(S.view==="usuarios"){ if(!S.usrOk) carregarUsuarios(); app.innerHTML=vUsuarios(); }
+  else if(S.view==="separacao"){ app.innerHTML=vSeparacao(); }
   pos();
 }
 document.addEventListener("click",ev=>{
@@ -882,6 +1210,7 @@ document.addEventListener("click",ev=>{
   if(S.view==="motorista") acaoMotorista(a,b.dataset.k,b);
   else if(S.view==="roteirizar") acaoRoteirizar(a,b);
   else if(S.view==="usuarios") acaoUsuarios(a,b);
+  else if(S.view==="separacao") acaoSeparacao(a,b);
 });
 document.addEventListener("keydown",ev=>{ if(ev.key==="Enter"&&S.view==="login"&&(ev.target.id==="lgPin"||ev.target.id==="lgUser")) entrar(); if(ev.key==="Escape") document.querySelector(".lb")?.remove(); });
 let tBusca=null;
@@ -897,12 +1226,18 @@ document.addEventListener("change",ev=>{
   if(t.id==="temProb"){ const r=rotaSel(), p=r&&paradaAtual(r); if(p){ lerCampos(p.k); (S.form[p.k]=S.form[p.k]||{}).prob=t.checked; render(); } }
   if(t.id==="edData"){ lerEd(); if(S.ed.id){ novaRota(t.value); } else S.ed.data=t.value; render(); }
   if(["edPlaca","edMot","edSaida"].includes(t.id)){ lerEd(); render(); }
+  if(t.id==="sepArq"&&t.files&&t.files.length){ lerPdfsSep([...t.files]); }
+  if(t.dataset.sepEsc!==undefined&&S.sep){ if(t.value) S.sep.escolha[t.dataset.sepEsc]=t.value; else delete S.sep.escolha[t.dataset.sepEsc]; agruparSep(); render(); }
   if(t.id==="fatDia"){ S.fatDia=t.value; S.fatAberto=true; render(); }
   if(t.id==="fPer"){ S.periodo=Number(t.value); render(); }
   if(t.id==="fPlaca"){ S.filt.placa=t.value; render(); }
   if(t.id==="fMot"){ S.filt.mot=t.value; render(); }
 });
 setInterval(()=>{ if(!S.token) return; if(S.view==="motorista"&&!document.hidden) atualizarMinhas(); },90000);
+// posição do caminhão para o mapa da gestão: a cada 2 min, só do motorista da rota em andamento (com o app aberto)
+setInterval(()=>{ if(!S.token||!S.me) return; const g=posAtual(); const r=rotasHoje().find(x=>x.ini&&!x.fim&&x.mot===S.me.nome); if(!r||!g) return;
+  S.fila=S.fila.filter(e=>!(e.tipo==="pos"&&e.rotaId===r.id)); const ev={id:uid(),tipo:"pos",rotaId:r.id,ts:new Date().toISOString(),gps:g};
+  aplicarEvento(r,ev); S.fila.push(ev); salvarLocal(); sincronizar(); },120000);
 boot().then(()=>{ window.__ok=true; }).catch(e=>{ $("#app").innerHTML=`<div class="card"><b>Erro ao abrir o app:</b> ${esc(e&&e.message||e)}</div>`; });
 </script>
 </body></html>
