@@ -225,10 +225,11 @@ function entrouOk(){
   montarAbas(); render();
   iniciarGps(); atualizarMinhas(); sincronizar();
   if(S.me&&S.me.perfil==="GESTOR"){ carregarBaseGestor(); }
+  else api("api_config",S.token).then(c=>{ S.cfg=c; }).catch(()=>{}); // placas para o abastecimento
 }
 function montarAbas(){
   const t=$("#tabs"); if(!S.me){ t.hidden=true; return; }
-  const abas = S.me.perfil==="GESTOR" ? [["motorista","Motorista"],["roteirizar","Roteirizar"],/* aba Separação fica de reserva (o ERP já imprime na ordem da rota): ["separacao","Separação"], */["painel","Painel"],["canhotos","Canhotos"],["usuarios","Usuários"],["sair","Sair"]] : [["motorista","Minhas entregas"],["sair","Sair"]];
+  const abas = S.me.perfil==="GESTOR" ? [["motorista","Motorista"],["roteirizar","Roteirizar"],/* aba Separação fica de reserva (o ERP já imprime na ordem da rota): ["separacao","Separação"], */["painel","Painel"],["premio","🏆 Prêmio"],["canhotos","Canhotos"],["usuarios","Usuários"],["sair","Sair"]] : [["motorista","Minhas entregas"],["sair","Sair"]];
   t.innerHTML = abas.map(([v,n])=>`<button data-tab="${v}" class="${S.view===v?"on":""}">${n}</button>`).join(""); t.hidden=false;
 }
 function vLogin(){
@@ -295,6 +296,12 @@ async function sincronizar(){
   try{
     while(S.fila.length){
       const j=S.fila[0];
+      if(j.tipo==="abast"){ // abastecimento: sobe a foto do cupom e depois o registro
+        const dataUrl=await IDB.get("foto_"+j.id); let fid="";
+        if(dataUrl) fid=await api("api_foto",S.token,j.meta,dataUrl);
+        await api("api_abastecer",S.token,Object.assign({},j.dados,{fotoId:fid}));
+        await IDB.del("foto_"+j.id); S.fila.shift(); await salvarLocal(); continue;
+      }
       if(j.tipo==="foto"){
         const dataUrl=await IDB.get("foto_"+j.id);
         if(dataUrl){ const fid=await api("api_foto",S.token,j.meta,dataUrl);
@@ -302,7 +309,7 @@ async function sincronizar(){
           await IDB.del("foto_"+j.id); S.fila.shift(); await salvarLocal(); juntarServidor(Object.values(r),false);
         } else { S.fila.shift(); await salvarLocal(); }
       } else {
-        const lote=[]; for(const x of S.fila){ if(x.tipo==="foto"||lote.length>=20) break; lote.push(x); }
+        const lote=[]; for(const x of S.fila){ if(x.tipo==="foto"||x.tipo==="abast"||lote.length>=20) break; lote.push(x); }
         const r=await api("api_sync",S.token,lote);
         S.fila.splice(0,lote.length); await salvarLocal(); juntarServidor(Object.values(r),false);
       }
@@ -313,7 +320,7 @@ async function sincronizar(){
 }
 function barraSync(){ const el=$("#syncbar"); if(el) el.outerHTML=htmlSync(); }
 function htmlSync(){
-  const fotos=S.fila.filter(j=>j.tipo==="foto").length, regs=S.fila.filter(j=>j.tipo!=="foto"&&j.tipo!=="pos").length;
+  const fotos=S.fila.filter(j=>j.tipo==="foto"||j.tipo==="abast").length, regs=S.fila.filter(j=>j.tipo!=="foto"&&j.tipo!=="pos").length;
   let cls="", txt="Tudo enviado";
   if(S.fila.length){ cls = (S.online&&!S.sync.erro)?"pend":"off";
     txt = `${regs?regs+" registro(s)":""}${regs&&fotos?" e ":""}${fotos?fotos+" foto(s)":""} guardados no celular · ${S.sync.rodando?"enviando…":(S.online&&!S.sync.erro?"envio em instantes":"envia sozinho quando tiver sinal")}`; }
@@ -333,8 +340,48 @@ const posAtual = () => (S.pos && Date.now()-S.pos.t<180000) ? {la:S.pos.la,lo:S.
 function rotasHoje(){ return S.minhas.filter(r=>r.data===hoje()); }
 function rotaSel(){ const l=rotasHoje(); return l.find(r=>r.id===S.rotaSel) || (l.length===1?l[0]:null); }
 function paradaAtual(r){ return r.paradas.find(p=>p.st==="cli") || r.paradas.find(p=>p.st==="pend"); }
+/* ---------- abastecimento: foto do cupom/NF + km + litros (base do km/l por caminhão e por motorista) ---------- */
+function vAbastecimento(){
+  const f=S.form.__ab||(S.form.__ab={}); const r=rotasHoje()[0];
+  if(!f.placa) f.placa=(rotaSel()||r||{}).placa||"";
+  const placas=[...new Set([...(S.cfg.placas||[]),f.placa].filter(Boolean))];
+  return `<div class="card grid" style="margin-bottom:14px"><div class="row" style="justify-content:space-between"><h3>⛽ Registrar abastecimento</h3><button class="mini ghost" data-a="fecharAbast">Cancelar</button></div>
+    <label class="f"><span class="lbl">Caminhão</span><select id="abPlaca"><option value="">Placa…</option>${placas.map(x=>`<option ${f.placa===x?"selected":""}>${esc(x)}</option>`).join("")}</select></label>
+    <div class="grid" style="grid-template-columns:1fr 1fr;gap:10px">
+      <label class="f"><span class="lbl">Km do odômetro *</span><input id="abKm" inputmode="numeric" value="${esc(f.km||"")}" placeholder="Ex.: 154320"></label>
+      <label class="f"><span class="lbl">Litros *</span><input id="abLitros" inputmode="decimal" value="${esc(f.litros||"")}" placeholder="Ex.: 180,5"></label>
+      <label class="f"><span class="lbl">Valor total (R$)</span><input id="abValor" inputmode="decimal" value="${esc(f.valor||"")}" placeholder="Ex.: 1.120,00"></label>
+      <label class="f"><span class="lbl">Posto</span><input id="abPosto" value="${esc(f.posto||"")}" placeholder="Nome / cidade"></label></div>
+    <label class="row small"><input type="checkbox" id="abCheio" ${f.cheio!==false?"checked":""} style="min-height:auto"> Completei o tanque</label>
+    <span class="lbl">Foto do cupom ou da NF do abastecimento (obrigatória)</span>
+    ${f.url?`<img class="photo-prev" src="${f.url}" alt="Foto do cupom">`:""}
+    <button class="${f.url?"":"pri"}" data-a="fotoAbast" style="min-height:56px">${f.url?"Tirar outra foto":"FOTOGRAFAR CUPOM / NF"}</button>
+    <button class="big ok" data-a="salvarAbast" ${f.dataUrl?"":"disabled"}>SALVAR ABASTECIMENTO</button>
+    <div class="small dim">Com o tanque completo a cada abastecimento, a média (km/l) de cada caminhão fica exata.</div></div>`;
+}
+function lerAbast(){ const f=S.form.__ab||(S.form.__ab={}), g=id=>$("#"+id);
+  if(g("abPlaca")){ f.placa=g("abPlaca").value; f.km=g("abKm").value.trim(); f.litros=g("abLitros").value.trim(); f.valor=g("abValor").value.trim(); f.posto=g("abPosto").value.trim(); f.cheio=g("abCheio").checked; } return f; }
+async function acaoAbast(a){
+  if(a==="abrirAbast"){ S.abAberto=true; render(); window.scrollTo(0,0); return; }
+  if(a==="fecharAbast"){ const f=S.form.__ab; if(f&&f.url) URL.revokeObjectURL(f.url); delete S.form.__ab; S.abAberto=false; render(); return; }
+  const f=lerAbast();
+  if(a==="fotoAbast"){ abrirCamera("__ab","Enquadre o cupom / NF inteiro, com litros e valor legíveis"); return; }
+  if(a==="salvarAbast"){
+    const km=Number(String(f.km).replace(/\D/g,"")), lt=Number(String(f.litros).replace(/\./g,"").replace(",","."));
+    if(!f.placa||!(km>0)||!(lt>0)){ toast("Informe caminhão, km do odômetro e litros."); return; }
+    if(!f.dataUrl){ toast("Fotografe o cupom ou a NF."); return; }
+    const id="A"+uid(), agoraD=new Date(), r=rotasHoje().find(x=>x.placa===f.placa);
+    await IDB.set("foto_"+id,f.dataUrl);
+    S.fila.push({id,tipo:"abast",ts:agoraD.toISOString(),dados:{id,data:hoje(),hora:hBR(agoraD.toISOString()),placa:f.placa,km,litros:lt,
+      valor:String(f.valor||"").replace(/\./g,"").replace(",","."),posto:f.posto||"",rotaId:r?r.id:"",obs:f.cheio===false?"tanque não completado":""},
+      meta:{evId:id,campo:"abast",data:hoje(),placa:f.placa,nf:"",cod:"",cliente:f.posto||"posto",ts:agoraD.toISOString()}});
+    if(f.url&&f.url.startsWith("blob:")) URL.revokeObjectURL(f.url); delete S.form.__ab; S.abAberto=false;
+    await salvarLocal(); render(); sincronizar(); toast("Abastecimento salvo. Obrigado!"); }
+}
 function vMotorista(){
   let h=htmlSync();
+  if(S.abAberto) return h+vAbastecimento();
+  h+=`<div class="row" style="margin-bottom:12px;justify-content:flex-end"><button class="mini" data-a="abrirAbast">⛽ Registrar abastecimento</button></div>`;
   const l=rotasHoje();
   if(!l.length) return h+`<div class="card empty"><h3>Nenhuma rota sua para hoje (${dBR(hoje())})</h3><p>Quando a logística salvar a rota, ela aparece aqui. Abra o app com Wi-Fi na garagem para baixar a rota do dia.</p><button data-a="recarregar">Procurar de novo</button></div>`;
   const r=rotaSel();
@@ -399,6 +446,7 @@ function novoEvento(r,tipo,extra){
 async function acaoMotorista(a,k,btn){
   if(a==="recarregar"){ atualizarMinhas(); toast("Procurando rotas…"); return; }
   if(a==="enviarJa"){ S.sync.erro=null; sincronizar(); return; }
+  if(/Abast$/.test(a)){ acaoAbast(a); return; }
   const r=rotaSel(); if(!r) return;
   const p=k?r.paradas.find(x=>x.k===k):null; const f=k?(S.form[k]||(S.form[k]={})):{};
   if(a==="iniciar"){ novoEvento(r,"iniciar",{km:$("#kmIni")?.value.trim()||null}); }
@@ -426,11 +474,11 @@ function lerCampos(k){ const f=S.form[k]; if(!f) return;
   ["receb","probTipo","probObs","ocTipo","ocObs"].forEach(id=>{ const v=g(id); if(v!==undefined) f[id]=v; }); }
 /* câmera dentro do app: a foto vai direto para a memória do app (nunca para a galeria) e é apagada depois do envio */
 let camStream=null;
-async function abrirCamera(k){
-  S.fotoK=k; S.camTmp=null;
+async function abrirCamera(k,titulo){
+  S.fotoK=k; S.camTmp=null; if(k==="__ab") lerAbast();
   if(!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia)){ toast("Este navegador não libera a câmera. Use o Chrome atualizado."); return; }
   const d=document.createElement("div"); d.className="lb"; d.id="camBox";
-  d.innerHTML=`<div class="row" style="justify-content:space-between"><b>Enquadre o canhoto inteiro, com a assinatura legível</b><button data-cam="fechar">Cancelar</button></div>
+  d.innerHTML=`<div class="row" style="justify-content:space-between"><b>${esc(titulo||"Enquadre o canhoto inteiro, com a assinatura legível")}</b><button data-cam="fechar">Cancelar</button></div>
     <video id="camV" playsinline autoplay muted style="flex:1;min-height:0;width:100%;object-fit:contain;background:#000;border-radius:10px"></video>
     <img id="camI" alt="Foto tirada" hidden style="flex:1;min-height:0;width:100%;object-fit:contain">
     <div class="row" id="camBtns"><button class="big pri" data-cam="capturar">CAPTURAR</button></div>`;
@@ -533,6 +581,7 @@ function vRoteirizar(){
         <label class="f"><span class="lbl">Data</span><input type="date" id="edData" value="${esc(e.data)}"></label>
         <label class="f"><span class="lbl">Caminhão</span><select id="edPlaca"><option value="">Placa…</option>${S.cfg.placas.map(x=>`<option ${e.placa===x?"selected":""}>${esc(x)}</option>`).join("")}</select></label>
         <label class="f"><span class="lbl">Motorista</span><select id="edMot"><option value="">Motorista…</option>${S.cfg.motoristas.map(x=>`<option ${e.mot===x?"selected":""}>${esc(x)}</option>`).join("")}</select></label>
+        <label class="f"><span class="lbl">Ajudante</span><input id="edAux" list="auxLista" value="${esc(e.aux||"")}" placeholder="Nome"><datalist id="auxLista">${(S.cfg.ajudantes||[]).map(x=>`<option value="${esc(x)}">`).join("")}</datalist></label>
         <label class="f"><span class="lbl">Saída prevista</span><input type="time" id="edSaida" value="${esc(e.saidaPrev)}"></label>
       </div>
       ${!S.cfg.motoristas.length?`<div class="small mut">Cadastre os motoristas na aba <b>Usuários</b> para escolher aqui.</div>`:""}
@@ -748,8 +797,172 @@ function desenharMapa(soTempo){
       <div class="list">${E.ps.map(x=>{ const p=x.p; return `<div class="it" data-mp="ir" data-k="${esc(r.id+"|"+p.k)}"><span class="bol" style="background:${COR_ST[x.s]};${x.s==="prox"?"box-shadow:0 0 0 2px #f5b33c;":""}"></span><div class="grow"><div class="ell"><b>${x.i+1}. ${esc(nomeCli(p))}</b> <span class="mut">· ${esc(p.cid)}</span></div>
         <div class="small mut">${x.s==="ok"||x.s==="oc"?`${TXT_ST[x.s]} ${hBR(p.said)}${p.cheg&&p.said?` · ${fmtMin(minEntre(p.cheg,p.said))} no cliente`:""}`:x.s==="agora"?`No cliente desde ${hBR(p.cheg)}`:`Previsto ${hBR(p.prev)}`}</div></div></div>`; }).join("")}</div>`; }
 }
+/* ================= PRÊMIO (motoristas e ajudantes) =================
+ * Pontuação 0–100 por pessoa = média ponderada dos indicadores que têm dado (peso redistribuído quando falta dado)
+ * + ajustes (elogios, reclamações, advertências). Pesos, mínimo de rotas e nome do programa ficam em Regras (Config 'premio'). */
+const PREMIO_PADRAO={nome:"Entregas Show",minRotas:20,limite:20,
+  mot:{ent100:25,consumo:20,seguranca:15,pontual:10,cuidado:10,assiduidade:10,canhoto:5,roteiro:5},
+  aju:{ent100:30,mercadoria:25,caixa:20,assiduidade:15,pontual:10},nomesPonto:{}};
+const IND={ent100:"Entregas 100%",canhoto:"Canhoto no ato",pontual:"Pontualidade",roteiro:"Seguiu o roteiro",consumo:"Consumo (km/l)",
+  seguranca:"Direção segura",cuidado:"Cuidado c/ caminhão",mercadoria:"Cuidado c/ mercadoria",caixa:"Organização do caixa",assiduidade:"Assiduidade"};
+const IND_DESC={ent100:"entregas sem ocorrência nem problema ÷ entregas registradas",canhoto:"entregas com foto do canhoto no ato",pontual:"chegadas até 30 min do horário previsto",
+  roteiro:"entregas feitas na ordem planejada",consumo:"km/l do motorista × meta do caminhão (ou média do caminhão no período, se não houver meta): 85% = 0; 100% ou mais = nota cheia",
+  seguranca:"perde pontos por multa (leve 3, média 4, grave 5, gravíssima 7; zera com 20)",cuidado:"perde pontos por avaria, acidente com culpa, caminhão sujo",
+  mercadoria:"perde pontos por avaria ou falta de mercadoria",assiduidade:"faltas e atrasos do ponto (Secullum: cada dia de falta −5, cada hora de atraso −1) + faltas e atrasos registrados aqui",
+  caixa:"perde pontos por caixa da viagem desorganizado (−3), com diferença de valor (−5) ou entregue com atraso (−2)"};
+const TIPOS_OC=[["Multa leve",3,"seguranca"],["Multa média",4,"seguranca"],["Multa grave",5,"seguranca"],["Multa gravíssima",7,"seguranca"],["Excesso de velocidade (rastreador)",2,"seguranca"],["Frenagem / aceleração brusca (rastreador)",1,"seguranca"],
+  ["Avaria no caminhão (descuido)",5,"cuidado"],["Acidente com culpa",15,"cuidado"],["Caminhão sujo / checklist não feito",2,"cuidado"],
+  ["Avaria ou falta de mercadoria",5,"mercadoria"],["Caixa desorganizado",3,"caixa"],["Caixa com diferença de valor",5,"caixa"],["Caixa entregue com atraso",2,"caixa"],["Falta injustificada",5,"assiduidade"],["Atraso na saída",2,"assiduidade"],
+  ["Reclamação de cliente",-3,"ajuste"],["Advertência",-5,"ajuste"],["Elogio de cliente",3,"ajuste"],["Destaque do mês (gestão)",5,"ajuste"]];
+const premioCfg=()=>{ const c=S.cfg.premio||{}; return {...PREMIO_PADRAO,...c,mot:{...PREMIO_PADRAO.mot,...(c.mot||{})},aju:{...PREMIO_PADRAO.aju,...(c.aju||{})}}; };
+const numX=v=>{ const n=Number(String(v??"").replace(/\s/g,"").replace(/\.(?=\d{3}(\D|$))/g,"").replace(",",".")); return isFinite(n)?n:0; };
+function periodoPremio(){ const a=S.pr.ano, m=S.pr.mes; if(!m) return [`${a}-01-01`,`${a}-12-31`]; const fim=new Date(a,Number(m),0).getDate(); return [`${a}-${m}-01`,`${a}-${m}-${pad(fim)}`]; }
+async function carregarPremio(){ const [ini,fim]=periodoPremio(); S.pr.chave=S.pr.ano+S.pr.mes; S.pr.carregando=true;
+  try{ S.pr.D=await api("api_premioDados",S.token,ini,fim); }catch(e){ toast(e.message); S.pr.D=null; } S.pr.carregando=false; render(); }
+function consumoIntervalos(ab,ini,fim){ // método do tanque cheio: km rodado desde o abastecimento anterior ÷ litros deste
+  const por={}, out=[]; ab.forEach(a=>{ (por[a.placa]=por[a.placa]||[]).push(a); });
+  Object.values(por).forEach(l=>{ l.sort((x,y)=>numX(x.km)-numX(y.km)); for(let i=1;i<l.length;i++){ const a=l[i], dk=numX(a.km)-numX(l[i-1].km), lt=numX(a.litros);
+    if(a.data<ini||a.data>fim) continue; out.push({placa:a.placa,mot:a.motorista,data:a.data,km:dk,l:lt,valor:numX(a.valor),ok:dk>0&&dk<3000&&lt>0,a}); } });
+  return out; }
+function calcPremio(){
+  const D=S.pr.D, cfg=premioCfg(), [ini,fim]=periodoPremio(), P={};
+  const pessoa=(nome,funcao)=>{ nome=String(nome||"").trim(); if(!nome) return null; const k=funcao+"|"+nome.toLowerCase();
+    return P[k]||(P[k]={nome,funcao,rotas:0,n:0,fe:0,ent:0,ok100:0,canh:0,pontN:0,pontOk:0,ordN:0,ordOk:0,km:0,exp:0,act:0,kmC:0,oc:{},aj:0,itens:[]}); };
+  const rotas=D.rotas.filter(r=>S.pr.sim||r.por!=="simulacao");
+  rotas.forEach(r=>{ const ps=[pessoa(r.mot,"Motorista"),...String(r.aux||"").split(/\s*[\/,;+]\s*|\s+e\s+/).map(x=>pessoa(x,"Ajudante"))].filter(Boolean);
+    ps.forEach(p=>{ p.rotas++; ["n","fe","ent","ok100","canh","pontN","pontOk","ordN","ordOk"].forEach(k=>p[k]+=r[k]||0); p.km+=r.kmPlan||0; }); });
+  const iv=consumoIntervalos(D.abastecimentos,ini,fim).filter(x=>x.ok), media={};
+  iv.forEach(x=>{ const m=media[x.placa]||(media[x.placa]={km:0,l:0}); m.km+=x.km; m.l+=x.l; });
+  iv.forEach(x=>{ const p=pessoa(x.mot,"Motorista"); if(!p) return; const avgP=Number((cfg.metas||{})[x.placa])||media[x.placa].km/media[x.placa].l; p.exp+=x.km/avgP; p.act+=x.l; p.kmC+=x.km; });
+  D.ocorrencias.forEach(o=>{ const t=TIPOS_OC.find(x=>x[0]===o.tipo), func=o.funcao||"Motorista", p=pessoa(o.pessoa,func); if(!p) return;
+    let ind=t?t[2]:"ajuste"; const pts=Number(o.pontos)||0;
+    if(func==="Motorista"&&ind==="mercadoria") ind="cuidado"; if(func==="Motorista"&&ind==="caixa") ind="ajusteNeg";
+    if(func==="Ajudante"&&(ind==="seguranca"||ind==="cuidado")) ind="mercadoria";
+    if(ind==="ajuste") p.aj+=pts; else if(ind==="ajusteNeg") p.aj-=pts; else p.oc[ind]=(p.oc[ind]||0)+pts; p.itens.push(o); });
+  // ponto do Secullum: liga o nome usado no app ao nome completo (automático pelo 1º nome + inicial; ou pela lista em Regras)
+  const pontoNomes=new Set(); Object.values(D.ponto||{}).forEach(c=>Object.keys(c).forEach(n=>pontoNomes.add(n)));
+  Object.values(P).forEach(p=>{ const nm=nomeSecullum(p.nome,p.funcao,[...pontoNomes],cfg); p.ponto=nm; if(!nm) return; let fal=0,atr=0;
+    Object.values(D.ponto||{}).forEach(c=>{ const x=c[nm]; if(x){ fal+=x[0]; atr+=x[1]; } }); p.faltasMin=fal; p.atrasoMin=atr;
+    p.oc.assiduidade=(p.oc.assiduidade||0)+Math.round((fal/440*5+atr/60)*10)/10; });
+  const minR=S.pr.mes?Math.max(1,Math.ceil(cfg.minRotas/12)):cfg.minRotas, lim=cfg.limite||20;
+  Object.values(P).forEach(p=>{ const W=p.funcao==="Motorista"?cfg.mot:cfg.aju, v={};
+    const q=(a,b)=>b?Math.min(1,a/b):null; v.ent100=q(p.ok100,p.fe); v.canhoto=q(p.canh,p.ent); v.pontual=q(p.pontOk,p.pontN); v.roteiro=q(p.ordOk,p.ordN);
+    p.ratio=p.act>0&&p.kmC>=300?p.exp/p.act:null; v.consumo=p.ratio==null?null:Math.min(1,Math.max(0,(p.ratio-0.85)/0.15));
+    ["seguranca","cuidado","mercadoria","caixa","assiduidade"].forEach(k=>{ v[k]=p.rotas?Math.max(0,1-(p.oc[k]||0)/lim):null; });
+    let sw=0,sv=0; p.pts={}; Object.entries(W).forEach(([k,w])=>{ if(!w||v[k]==null) return; sw+=w; sv+=w*v[k]; p.pts[k]=v[k]; });
+    p.base=sw?100*sv/sw:null; p.total=p.base==null?null:Math.round((p.base+p.aj)*10)/10; p.eleg=p.rotas>=minR; });
+  const rank=f=>Object.values(P).filter(p=>p.funcao===f&&(p.rotas||p.itens.length)).sort((a,b)=>(b.eleg-a.eleg)||((b.total??-999)-(a.total??-999)));
+  return {mot:rank("Motorista"),aju:rank("Ajudante"),rotas,iv,media,minR,cfg}; }
+function semAc(s){ return String(s||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase().replace(/[^A-Z ]/g," ").trim(); }
+function nomeSecullum(nome,funcao,lista,cfg){
+  const manual=(cfg.nomesPonto||{})[nome]; if(manual) return lista.find(n=>semAc(n)===semAc(manual))||null;
+  const t=semAc(nome).split(/\s+/).filter(Boolean); if(!t.length) return null;
+  const cand=lista.filter(n=>{ const w=semAc(n).split(/\s+/); return w[0].startsWith(t[0])&&(t.length<2||w.slice(1).some(x=>x.startsWith(t[1][0]))); });
+  return cand.length===1?cand[0]:null; }
+function corNota(x){ return x==null?"var(--dim)":x>=90?"#3ecf8e":x>=75?"#f5b33c":"#f26d6d"; }
+function tabelaRank(lista,W,minR){
+  if(!lista.length) return `<div class="empty small">Sem dados no período.</div>`;
+  const ks=Object.keys(W).filter(k=>W[k]);
+  const pod=lista.filter(p=>p.eleg&&p.total!=null).slice(0,3);
+  return `${pod.length?`<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:12px">${pod.map((p,i)=>`<div class="kpi ${i===0?"acc":""}" style="text-align:center"><span style="font-size:28px">${["🥇","🥈","🥉"][i]}</span><b style="font-size:20px">${esc(p.nome)}</b><span class="s">${fmtN(p.total,1)} pontos · ${p.rotas} rotas</span></div>`).join("")}</div>`:""}
+  <div class="tbl"><table><thead><tr><th>#</th><th>Nome</th><th class="n">Pontos</th>${ks.map(k=>`<th class="n hide-m" title="${esc(IND_DESC[k])}">${esc(IND[k])}<div class="dim" style="font-weight:400">peso ${W[k]}</div></th>`).join("")}<th class="n hide-m">Ajustes</th><th class="n">Rotas</th></tr></thead><tbody>
+  ${lista.map((p,i)=>`<tr style="${p.eleg?"":"opacity:.55"}"><td class="num">${p.eleg?i+1:"—"}</td><td><b>${esc(p.nome)}</b>${p.eleg?"":`<div class="small dim">abaixo de ${minR} rotas</div>`}${p.ponto===null?`<div class="small dim" title="Ligue em Regras: nome no app = nome no ponto">sem ligação com o ponto</div>`:p.ponto?`<div class="small dim">${esc(p.ponto)}</div>`:""}</td>
+    <td class="n"><b style="color:${corNota(p.total)};font-size:16px">${p.total==null?"—":fmtN(p.total,1)}</b></td>
+    ${ks.map(k=>{ const v=p.pts[k]; return `<td class="n hide-m"><span style="color:${corNota(v==null?null:v*100)}">${v==null?"—":fmtN(v*100,0)+"%"}</span>${k==="consumo"&&p.ratio?`<div class="small dim">${fmtN(p.ratio*100,0)}% do esperado</div>`:""}${["seguranca","cuidado","mercadoria","caixa","assiduidade"].includes(k)&&p.oc[k]?`<div class="small dim">−${fmtN(p.oc[k],1)} pts</div>`:""}</td>`; }).join("")}
+    <td class="n hide-m" style="color:${p.aj>0?"#3ecf8e":p.aj<0?"#f26d6d":"inherit"}">${p.aj?(p.aj>0?"+":"")+p.aj:"—"}</td><td class="n">${p.rotas}</td></tr>`).join("")}
+  </tbody></table></div>`; }
+function vPremio(){
+  S.pr=S.pr||{ano:new Date().getFullYear(),mes:"",sim:false,aba:"ranking",D:null,chave:null,f:{}};
+  if(S.pr.chave!==S.pr.ano+S.pr.mes&&!S.pr.carregando) carregarPremio();
+  const cfg=premioCfg(), anos=[...new Set([2026,2027,new Date().getFullYear(),new Date().getFullYear()+1])].sort();
+  let h=`<div class="card" style="margin-bottom:14px;background:linear-gradient(135deg,#1b242d,#2a1f0b)"><div class="row" style="justify-content:space-between;align-items:flex-end">
+    <div><span class="lbl">Programa de reconhecimento · motoristas e ajudantes</span><h2 style="font-size:28px">🏆 ${esc(cfg.nome)}</h2></div>
+    <div class="row" style="align-items:flex-end"><label class="f"><span class="lbl">Ano</span><select data-pr="ano">${anos.map(a=>`<option ${S.pr.ano==a?"selected":""}>${a}</option>`).join("")}</select></label>
+    <label class="f"><span class="lbl">Mês</span><select data-pr="mes"><option value="">Ano todo</option>${["01","02","03","04","05","06","07","08","09","10","11","12"].map(m=>`<option value="${m}" ${S.pr.mes===m?"selected":""}>${m}</option>`).join("")}</select></label>
+    <label class="row small" style="min-height:40px"><input type="checkbox" data-pr="sim" ${S.pr.sim?"checked":""} style="min-height:auto"> incluir rotas simuladas</label></div></div>
+    <div class="chips" style="margin-top:12px">${[["ranking","Ranking"],["consumo","Consumo (km/l)"],["ocorr","Ocorrências"],["abast","Abastecimentos"],["regras","Regras e pesos"]].map(([k,n])=>`<button data-a="prAba" data-v="${k}" class="${S.pr.aba===k?"on":""}">${n}</button>`).join("")}</div></div>`;
+  if(!S.pr.D) return h+`<div class="card empty"><h3>${S.pr.carregando?"Carregando…":"Sem dados"}</h3></div>`;
+  const R=calcPremio();
+  if(S.pr.aba==="ranking"){
+    const fe=R.rotas.reduce((s,r)=>s+r.fe,0), ok=R.rotas.reduce((s,r)=>s+r.ok100,0), mk=Object.values(R.media), kml=mk.length?mk.reduce((s,m)=>s+m.km,0)/mk.reduce((s,m)=>s+m.l,0):null;
+    const multas=S.pr.D.ocorrencias.filter(o=>/^Multa/.test(o.tipo)).length, av=S.pr.D.ocorrencias.filter(o=>/Avaria|Acidente/.test(o.tipo)).length;
+    h+=`<div class="kpis" style="margin-bottom:14px"><div class="kpi"><span class="lbl">Rotas</span><b>${fmtN(R.rotas.length)}</b><span class="s">${fmtN(fe)} entregas registradas</span></div>
+      <div class="kpi ok"><span class="lbl">Entregas 100%</span><b>${pct(ok,fe)??"—"}%</b><span class="s">sem ocorrência nem problema</span></div>
+      <div class="kpi acc"><span class="lbl">Média da frota</span><b>${kml?fmtN(kml,2):"—"}</b><span class="s">km/l · ${R.iv.length} abastecimentos medidos</span></div>
+      <div class="kpi bad"><span class="lbl">Multas</span><b>${multas}</b><span class="s">${av} avaria(s) / acidente(s)</span></div></div>
+      <div class="card" style="margin-bottom:14px"><div class="row" style="justify-content:space-between"><h3>Motoristas</h3><span class="small mut">mínimo ${R.minR} rotas no período para concorrer</span></div><div style="margin-top:10px">${tabelaRank(R.mot,cfg.mot,R.minR)}</div></div>
+      <div class="card" style="margin-bottom:14px"><div class="row" style="justify-content:space-between"><h3>Ajudantes</h3><span class="small mut">ajudante vem do campo "Ajudante" da rota</span></div><div style="margin-top:10px">${tabelaRank(R.aju,cfg.aju,R.minR)}</div></div>
+      <div class="small dim">Passe o mouse no nome do indicador para ver como ele é calculado. Indicador sem dado no período não pesa contra: o peso dele é redistribuído.</div>`;
+  } else if(S.pr.aba==="consumo"){
+    const porP={}, porM={}; R.iv.forEach(x=>{ const a=porP[x.placa]||(porP[x.placa]={km:0,l:0,v:0,n:0}); a.km+=x.km; a.l+=x.l; a.v+=x.valor; a.n++; });
+    R.mot.forEach(p=>{ if(p.act) porM[p.nome]=p; });
+    const alerta=consumoIntervalos(S.pr.D.abastecimentos,...periodoPremio()).filter(x=>!x.ok||(R.media[x.placa]&&x.km/x.l<0.7*R.media[x.placa].km/R.media[x.placa].l));
+    h+=`<div class="grid g2" style="align-items:start"><div class="card"><h3>Por caminhão</h3><div class="tbl" style="margin-top:8px"><table><thead><tr><th>Placa</th><th class="n">Km</th><th class="n">Litros</th><th class="n">km/l</th><th class="n">R$/km</th><th class="n">Abast.</th></tr></thead><tbody>
+      ${Object.entries(porP).sort((a,b)=>b[1].km/b[1].l-a[1].km/a[1].l).map(([pl,a])=>`<tr><td><b>${esc(pl)}</b></td><td class="n">${fmtN(a.km)}</td><td class="n">${fmtN(a.l,1)}</td><td class="n"><b>${fmtN(a.km/a.l,2)}</b></td><td class="n">${a.v?fmtN(a.v/a.km,2):"—"}</td><td class="n">${a.n}</td></tr>`).join("")||`<tr><td colspan="6" class="mut">Sem abastecimentos medidos (precisa de 2 abastecimentos do mesmo caminhão).</td></tr>`}</tbody></table></div></div>
+      <div class="card"><h3>Por motorista</h3><div class="tbl" style="margin-top:8px"><table><thead><tr><th>Motorista</th><th class="n">Km</th><th class="n">km/l</th><th class="n">× meta/média do caminhão</th></tr></thead><tbody>
+      ${Object.values(porM).sort((a,b)=>(b.exp/b.act)-(a.exp/a.act)).map(p=>`<tr><td><b>${esc(p.nome)}</b></td><td class="n">${fmtN(p.kmC)}</td><td class="n">${fmtN(p.kmC/p.act,2)}</td><td class="n" style="color:${corNota(Math.min(100,(p.exp/p.act-0.85)/0.15*100))}"><b>${fmtN(100*p.exp/p.act,0)}%</b></td></tr>`).join("")||`<tr><td colspan="4" class="mut">Sem dados.</td></tr>`}</tbody></table></div>
+      <div class="small dim" style="margin-top:6px">Compara cada motorista com a meta de km/l do caminhão que dirigiu (aba Regras) ou, sem meta, com a média do caminhão no período. Assim é justo entre caminhões diferentes.</div></div></div>
+      ${alerta.length?`<div class="card" style="margin-top:14px"><h3>Abastecimentos para conferir (${alerta.length})</h3><div class="small mut">km menor que o anterior, mais de 3.000 km entre abastecimentos ou consumo 30% pior que a média.</div><div class="list" style="margin-top:8px">${alerta.map(x=>`<div class="it"><div class="grow"><b>${esc(x.placa)}</b> · ${dBR(x.data)} · ${esc(x.mot)}<div class="small mut">${fmtN(x.km)} km desde o anterior · ${fmtN(x.l,1)} L${x.l&&x.km>0?` · ${fmtN(x.km/x.l,2)} km/l`:""}</div></div>${x.a.fotoId?`<button class="mini" data-a="prCupom" data-id="${esc(x.a.fotoId)}">Ver cupom</button>`:""}</div>`).join("")}</div></div>`:""}`;
+  } else if(S.pr.aba==="ocorr"){
+    const f=S.pr.f, pessoas=[...new Set([...(S.cfg.motoristas||[]),...(S.cfg.ajudantes||[])])].sort();
+    h+=`<div class="grid g2" style="align-items:start"><div class="card grid"><h3>Registrar ocorrência</h3>
+      <div class="grid" style="grid-template-columns:1fr 1fr;gap:10px">
+      <label class="f"><span class="lbl">Data</span><input type="date" id="ocData" value="${esc(f.data||hoje())}"></label>
+      <label class="f"><span class="lbl">Função</span><select id="ocFunc"><option ${f.funcao!=="Ajudante"?"selected":""}>Motorista</option><option ${f.funcao==="Ajudante"?"selected":""}>Ajudante</option></select></label>
+      <label class="f"><span class="lbl">Pessoa</span><input id="ocPessoa" list="pessoasLista" value="${esc(f.pessoa||"")}"><datalist id="pessoasLista">${pessoas.map(x=>`<option value="${esc(x)}">`).join("")}</datalist></label>
+      <label class="f"><span class="lbl">Caminhão</span><select id="ocPlaca"><option value="">—</option>${(S.cfg.placas||[]).map(x=>`<option ${f.placa===x?"selected":""}>${esc(x)}</option>`).join("")}</select></label></div>
+      <label class="f"><span class="lbl">Tipo</span><select id="ocTipoP" data-pr="tipo">${TIPOS_OC.map(t=>`<option ${f.tipo===t[0]?"selected":""}>${t[0]}</option>`).join("")}</select></label>
+      <div class="grid" style="grid-template-columns:1fr 1fr;gap:10px"><label class="f"><span class="lbl">Pontos (já vem pelo tipo)</span><input id="ocPontos" inputmode="numeric" value="${esc(f.pontos??TIPOS_OC[0][1])}"></label>
+      <label class="f"><span class="lbl">Valor R$ (multa/avaria)</span><input id="ocValor" inputmode="decimal" value="${esc(f.valor||"")}"></label></div>
+      <textarea id="ocObsP" placeholder="Detalhes: auto de infração, cliente, o que aconteceu">${esc(f.obs||"")}</textarea>
+      <button class="pri" data-a="prSalvarOc">Salvar ocorrência</button>
+      <div class="small dim">Multas e avarias tiram pontos do indicador (Direção segura / Cuidado). Elogio e destaque somam direto na nota; reclamação e advertência descontam.</div></div>
+      <div class="card"><h3>Ocorrências do período (${S.pr.D.ocorrencias.length})</h3><div class="list" style="margin-top:8px">${[...S.pr.D.ocorrencias].sort((a,b)=>b.data.localeCompare(a.data)).map(o=>`<div class="it"><span class="pill ${/Elogio|Destaque/.test(o.tipo)?"ok":"bad"}">${/Elogio|Destaque/.test(o.tipo)?"+":"−"}${esc(Math.abs(Number(o.pontos)||0))}</span><div class="grow"><b>${esc(o.pessoa)}</b> <span class="mut">· ${esc(o.funcao)} · ${dBR(o.data)}${o.placa?" · "+esc(o.placa):""}</span><div class="small mut">${esc(o.tipo)}${o.valor?` · R$ ${esc(o.valor)}`:""}${o.obs?` · ${esc(o.obs)}`:""}</div></div><button class="mini ghost" data-a="prExcOc" data-id="${esc(o.id)}" style="color:var(--bad)">${S.pr.confOc===o.id?"Confirmar":"Excluir"}</button></div>`).join("")||`<div class="small mut">Nenhuma ocorrência registrada.</div>`}</div></div></div>`;
+  } else if(S.pr.aba==="abast"){
+    const [ini,fim]=periodoPremio(), l=S.pr.D.abastecimentos.filter(a=>a.data>=ini&&a.data<=fim).sort((a,b)=>(b.data+b.hora).localeCompare(a.data+a.hora));
+    h+=`<div class="card"><h3>Abastecimentos registrados pelos motoristas (${l.length})</h3><div class="tbl" style="margin-top:8px"><table><thead><tr><th>Data</th><th>Placa</th><th>Motorista</th><th class="n">Km</th><th class="n">Litros</th><th class="n">R$</th><th class="hide-m">Posto</th><th></th></tr></thead><tbody>
+      ${l.map(a=>`<tr><td>${dBR(a.data)} ${esc(a.hora)}</td><td><b>${esc(a.placa)}</b></td><td>${esc(a.motorista)}</td><td class="n">${fmtN(numX(a.km))}</td><td class="n">${fmtN(numX(a.litros),1)}</td><td class="n">${a.valor?fmtN(numX(a.valor),2):"—"}</td><td class="hide-m small">${esc(a.posto)}${a.obs?` <span class="dim">(${esc(a.obs)})</span>`:""}</td>
+        <td style="white-space:nowrap">${a.fotoId?`<button class="mini" data-a="prCupom" data-id="${esc(a.fotoId)}">Cupom</button>`:""}<button class="mini ghost" data-a="prExcAb" data-id="${esc(a.id)}" style="color:var(--bad)">${S.pr.confAb===a.id?"Confirmar":"✕"}</button></td></tr>`).join("")||`<tr><td colspan="8" class="mut">Nenhum abastecimento no período. O motorista registra em "⛽ Registrar abastecimento", no app dele.</td></tr>`}</tbody></table></div></div>`;
+  } else {
+    const ind=(grp,W)=>Object.keys(W).map(k=>`<label class="f"><span class="lbl" title="${esc(IND_DESC[k])}">${esc(IND[k])}</span><input data-peso="${grp}.${k}" inputmode="numeric" value="${W[k]}"></label>`).join("");
+    const soma=W=>Object.values(W).reduce((a,b)=>a+Number(b||0),0);
+    h+=`<div class="grid g2" style="align-items:start"><div class="card grid"><h3>Regras do programa</h3>
+      <label class="f"><span class="lbl">Nome do programa</span><input id="prNome" value="${esc(cfg.nome)}"></label>
+      <div class="grid" style="grid-template-columns:1fr 1fr;gap:10px"><label class="f"><span class="lbl">Mínimo de rotas no ano</span><input id="prMin" inputmode="numeric" value="${cfg.minRotas}"></label>
+      <label class="f"><span class="lbl">Pontos que zeram um indicador</span><input id="prLim" inputmode="numeric" value="${cfg.limite}"></label></div>
+      <span class="lbl" style="margin-top:6px">Pesos · Motorista (soma ${soma(cfg.mot)})</span><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px">${ind("mot",cfg.mot)}</div>
+      <span class="lbl" style="margin-top:6px">Pesos · Ajudante (soma ${soma(cfg.aju)})</span><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px">${ind("aju",cfg.aju)}</div>
+      <span class="lbl" style="margin-top:6px">Meta de km/l por caminhão (deixe vazio para usar a média do período)</span><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px">${(S.cfg.placas||[]).map(pl=>`<label class="f"><span class="lbl">${esc(pl)}</span><input data-meta="${esc(pl)}" inputmode="decimal" value="${esc((cfg.metas||{})[pl]??"")}" placeholder="ex.: 3,2"></label>`).join("")}</div>
+      <label class="f"><span class="lbl">Nome no app = nome no ponto (Secullum), só quando não ligar sozinho</span><textarea id="prNomes" style="min-height:70px" placeholder="Beto = GILBERTO DOS SANTOS">${esc(Object.entries(cfg.nomesPonto||{}).map(([a,b])=>a+" = "+b).join("\n"))}</textarea></label>
+      <label class="f"><span class="lbl">Ajudantes (um por linha)</span><textarea id="prAju" style="min-height:120px">${esc((S.cfg.ajudantes||[]).join("\n"))}</textarea></label>
+      <button class="pri" data-a="prSalvarCfg">Salvar regras</button></div>
+      <div class="card"><h3>Como a nota é calculada</h3><div class="list" style="margin-top:8px">${Object.keys(IND).map(k=>`<div class="it"><div class="grow"><b>${esc(IND[k])}</b><div class="small mut">${esc(IND_DESC[k])}</div></div></div>`).join("")}</div>
+      <div class="small mut" style="margin-top:10px">Nota = média dos indicadores pelos pesos (0 a 100) + ajustes (elogio +3, destaque +5, reclamação −3, advertência −5). Quem não atingir o mínimo de rotas aparece, mas não concorre.</div></div></div>`;
+  }
+  return h; }
+function mudouPremio(t){ const k=t.dataset.pr;
+  if(k==="ano"){ S.pr.ano=Number(t.value); render(); } else if(k==="mes"){ S.pr.mes=t.value; render(); } else if(k==="sim"){ S.pr.sim=t.checked; render(); }
+  else if(k==="tipo"){ const tp=TIPOS_OC.find(x=>x[0]===t.value); const i=$("#ocPontos"); if(tp&&i) i.value=tp[1]; } }
+async function verCupom(id){ const d=document.createElement("div"); d.className="lb"; d.innerHTML=`<div class="row" style="justify-content:space-between"><b>Cupom / NF do abastecimento</b><button onclick="this.closest('.lb').remove()">Fechar</button></div><div id="cupImg" class="empty">Carregando…</div>`; document.body.appendChild(d);
+  try{ const u=await api("api_foto64",S.token,id); const b=d.querySelector("#cupImg"); if(b) b.outerHTML=u?`<img src="${u}" alt="Cupom">`:`<div class="empty">Foto indisponível.</div>`; }catch(e){ toast(e.message); } }
+async function acaoPremio(a,el){
+  if(a==="prAba"){ S.pr.aba=el.dataset.v; render(); return; }
+  if(a==="prCupom"){ verCupom(el.dataset.id); return; }
+  if(a==="prSalvarOc"){ const g=id=>($("#"+id)?.value||"").trim();
+    const o={data:g("ocData"),funcao:g("ocFunc"),pessoa:g("ocPessoa"),placa:g("ocPlaca"),tipo:g("ocTipoP"),pontos:Number(g("ocPontos"))||0,valor:g("ocValor"),obs:g("ocObsP")};
+    S.pr.f={...o}; if(!o.pessoa){ toast("Informe a pessoa."); return; }
+    try{ await api("api_salvarOcorrencia",S.token,o); S.pr.f={data:o.data,funcao:o.funcao}; toast("Ocorrência salva."); carregarPremio(); }catch(e){ toast(e.message); } return; }
+  if(a==="prExcOc"||a==="prExcAb"){ const k=a==="prExcOc"?"confOc":"confAb", id=el.dataset.id; if(S.pr[k]!==id){ S.pr[k]=id; render(); return; } S.pr[k]=null;
+    try{ await api(a==="prExcOc"?"api_excluirOcorrencia":"api_excluirAbastecimento",S.token,id); toast("Excluído."); carregarPremio(); }catch(e){ toast(e.message); } return; }
+  if(a==="prSalvarCfg"){ const c=premioCfg(); c.nome=($("#prNome").value||"Entregas Show").trim(); c.minRotas=Number($("#prMin").value)||0; c.limite=Number($("#prLim").value)||20;
+    document.querySelectorAll("[data-peso]").forEach(i=>{ const [g,k]=i.dataset.peso.split("."); c[g][k]=Number(i.value)||0; });
+    c.metas={}; document.querySelectorAll("[data-meta]").forEach(i=>{ const v=numX(i.value); if(v>0) c.metas[i.dataset.meta]=v; });
+    c.nomesPonto={}; $("#prNomes").value.split(/\r?\n/).forEach(l=>{ const [a,b]=l.split("="); if(a&&b&&a.trim()&&b.trim()) c.nomesPonto[a.trim()]=b.trim().toUpperCase(); });
+    const aj=$("#prAju").value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+    try{ S.cfg=await api("api_salvarPremioCfg",S.token,c,aj); toast("Regras salvas."); render(); }catch(e){ toast(e.message); } return; }
+}
 function lerEd(){ const e=S.ed; if(!e||S.view!=="roteirizar") return;
-  const v=id=>$("#"+id)?.value; if(v("edData")!==undefined){ e.data=v("edData")||e.data; e.placa=v("edPlaca"); e.mot=v("edMot"); e.saidaPrev=v("edSaida")||"07:30"; }
+  const v=id=>$("#"+id)?.value; if(v("edData")!==undefined){ e.data=v("edData")||e.data; e.placa=v("edPlaca"); e.mot=v("edMot"); e.aux=(v("edAux")||"").trim(); e.saidaPrev=v("edSaida")||"07:30"; }
   document.querySelectorAll("[data-nf]").forEach(i=>{ const p=e.paradas.find(x=>x.k===i.dataset.nf); if(p) p.nf=i.value.trim(); }); }
 async function acaoRoteirizar(a,el){
   const e=S.ed; lerEd();
@@ -1201,6 +1414,7 @@ function render(){
   else if(S.view==="painel"||S.view==="canhotos"){ if(S.perAtivo!==S.periodo) carregarPeriodo(); app.innerHTML=S.view==="painel"?vPainel():vCanhotos(); }
   else if(S.view==="usuarios"){ if(!S.usrOk) carregarUsuarios(); app.innerHTML=vUsuarios(); }
   else if(S.view==="separacao"){ app.innerHTML=vSeparacao(); }
+  else if(S.view==="premio"){ app.innerHTML=vPremio(); }
   pos();
 }
 document.addEventListener("click",ev=>{
@@ -1214,6 +1428,7 @@ document.addEventListener("click",ev=>{
   else if(S.view==="roteirizar") acaoRoteirizar(a,b);
   else if(S.view==="usuarios") acaoUsuarios(a,b);
   else if(S.view==="separacao") acaoSeparacao(a,b);
+  else if(S.view==="premio") acaoPremio(a,b);
 });
 document.addEventListener("keydown",ev=>{ if(ev.key==="Enter"&&S.view==="login"&&(ev.target.id==="lgPin"||ev.target.id==="lgUser")) entrar(); if(ev.key==="Escape") document.querySelector(".lb")?.remove(); });
 let tBusca=null;
@@ -1228,7 +1443,8 @@ document.addEventListener("change",ev=>{
   if(t.id==="selRota"){ S.rotaSel=t.value; render(); }
   if(t.id==="temProb"){ const r=rotaSel(), p=r&&paradaAtual(r); if(p){ lerCampos(p.k); (S.form[p.k]=S.form[p.k]||{}).prob=t.checked; render(); } }
   if(t.id==="edData"){ lerEd(); if(S.ed.id){ novaRota(t.value); } else S.ed.data=t.value; render(); }
-  if(["edPlaca","edMot","edSaida"].includes(t.id)){ lerEd(); render(); }
+  if(["edPlaca","edMot","edSaida","edAux"].includes(t.id)){ lerEd(); render(); }
+  if(t.dataset.pr!==undefined){ mudouPremio(t); }
   if(t.id==="sepArq"&&t.files&&t.files.length){ lerPdfsSep([...t.files]); }
   if(t.dataset.sepEsc!==undefined&&S.sep){ if(t.value) S.sep.escolha[t.dataset.sepEsc]=t.value; else delete S.sep.escolha[t.dataset.sepEsc]; agruparSep(); render(); }
   if(t.id==="fatDia"){ S.fatDia=t.value; S.fatAberto=true; render(); }
