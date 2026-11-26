@@ -643,7 +643,10 @@ function estadoRota(r,T){
   if(iniciou&&!acabou&&!ps.some(x=>x.s==="agora")){ const nx=ps.find(x=>x.s==="pend"); if(nx) nx.s="prox"; }
   let cam=null; const ag=ps.find(x=>x.s==="agora");
   const feitas=ps.filter(x=>(x.s==="ok"||x.s==="oc")&&x.p.said).sort((a,b)=>msDe(a.p.said)-msDe(b.p.said));
-  if(!iniciou) cam=Object.assign({},GARAGEM,{txt:r.saidaPrev?`Na garagem · saída prevista ${r.saidaPrev}`:"Na garagem",est:false});
+  const rs=T==null&&r.rast&&r.rast.la!=null?r.rast:null;
+  if(rs){ const ig=rs.ign==null?"":(/^(1|true|on|s|sim|ligad)/i.test(String(rs.ign))?" · ignição ligada":" · ignição desligada");
+    cam={la:+rs.la,lo:+rs.lo,est:false,rast:true,txt:`Rastreador Fulltrack · ${rs.ts?hBR(rs.ts)+" (há "+fmtMin(minEntre(rs.ts,new Date().toISOString()))+")":"agora"}${rs.vel!=null?` · ${Math.round(rs.vel)} km/h`:""}${ig}${rs.end?` · ${rs.end}`:""}`}; }
+  else if(!iniciou) cam=Object.assign({},GARAGEM,{txt:r.saidaPrev?`Na garagem · saída prevista ${r.saidaPrev}`:"Na garagem",est:false});
   else if(acabou) cam=Object.assign({},GARAGEM,{txt:`Voltou à garagem${r.fim?" às "+hBR(r.fim):""}`,est:false});
   else if(T==null&&r.pos) cam={la:+r.pos.la,lo:+r.pos.lo,txt:`GPS do celular do motorista · ${hBR(r.pos.ts)} (há ${fmtMin(minEntre(r.pos.ts,new Date().toISOString()))})`,est:false};
   else if(ag&&temLocal(ag.p)) cam={la:ag.p.la,lo:ag.p.lo,txt:`No cliente ${nomeCli(ag.p)} desde ${hBR(ag.p.cheg)}`,est:T==null};
@@ -672,7 +675,7 @@ async function abrirMapa(sel){
       <select id="mpSel" style="max-width:340px"></select><a class="btn mini" id="mpGm" target="_blank" rel="noopener">Navegar no Google Maps</a><button class="mini" id="mpFechar">Fechar ✕</button></div>
     <div class="mp-tempo small" id="mpTempo"></div>
     <div class="mp-corpo"><div id="mpMapa"></div><div class="mp-lista" id="mpLista"></div></div>
-    <div class="legend small">${["ok","agora","prox","pend","oc"].map(s=>`<span><i class="mk ${s}" style="display:inline-grid;width:14px;height:14px;font-size:0;vertical-align:-3px;margin-right:4px;animation:none"></i>${TXT_ST[s]}</span>`).join("")}<span>🚚 Caminhão</span><span class="dim">Borda tracejada = local aproximado (centro da cidade)</span></div>`;
+    <div class="legend small">${["ok","agora","prox","pend","oc"].map(s=>`<span><i class="mk ${s}" style="display:inline-grid;width:14px;height:14px;font-size:0;vertical-align:-3px;margin-right:4px;animation:none"></i>${TXT_ST[s]}</span>`).join("")}<span>🚚 Caminhão (rastreador ao vivo; sem ele, celular do motorista ou estimativa)</span><span class="dim">Borda tracejada = local aproximado (centro da cidade)</span></div>`;
   document.body.appendChild(d);
   Object.assign(MAPA,{sel,T:null,data:S.ed.data,fit:true});
   MAPA.m=L.map("mpMapa",{zoomControl:true,preferCanvas:false});
@@ -727,7 +730,7 @@ function desenharMapa(soTempo){
         <span class="bol" style="background:${COR_ST[x.s]}"></span>${TXT_ST[x.s]}<br>Previsto ${hBR(p.prev)}${p.cheg&&(MAPA.T==null||msDe(p.cheg)<=MAPA.T)?` · chegou ${hBR(p.cheg)}`:""}${p.said&&(MAPA.T==null||msDe(p.said)<=MAPA.T)?` · saiu ${hBR(p.said)}${tcli!=null?` (${fmtMin(tcli)})`:""}`:""}
         ${p.valor?`<br>R$ ${esc(p.valor)}`:""}${p.nf?` · NF ${esc(p.nf)}`:""}${p.oc&&x.s==="oc"?`<br><b style="color:#f26d6d">${esc(p.oc.tipo)}</b> ${esc(p.oc.obs||"")}`:""}${p.gps==="c"?`<br><i style="color:#8a9aaa">Local aproximado (centro da cidade)</i>`:""}`;
       MAPA.mk[r.id+"|"+p.k]=L.marker([p.la,p.lo],{icon:ic,zIndexOffset:x.s==="agora"||x.s==="prox"?500:0}).bindPopup(pop).addTo(MAPA.g); });
-    if(E.cam&&(E.iniciou||vis.length===1)){ const m=L.marker([E.cam.la,E.cam.lo],{icon:iconeCam(c,r.placa),zIndexOffset:1000}).bindPopup(`<b>${esc(r.placa)}</b> · ${esc(r.mot||"sem motorista")}<br>${esc(E.cam.txt)}`).addTo(MAPA.g); MAPA.mk[r.id+"|cam"]=m; if(E.iniciou&&!E.acabou) bounds.push([E.cam.la,E.cam.lo]); }
+    if(E.cam&&(E.iniciou||vis.length===1||E.cam.rast)){ const m=L.marker([E.cam.la,E.cam.lo],{icon:iconeCam(c,r.placa),zIndexOffset:1000}).bindPopup(`<b>${esc(r.placa)}</b> · ${esc(r.mot||"sem motorista")}<br>${esc(E.cam.txt)}`).addTo(MAPA.g); MAPA.mk[r.id+"|cam"]=m; if(E.iniciou&&!E.acabou) bounds.push([E.cam.la,E.cam.lo]); }
     resumo.push({r,E,c});
   });
   if(MAPA.fit&&bounds.length>1){ MAPA.m.fitBounds(bounds,{padding:[30,30],maxZoom:14}); MAPA.fit=false; }
