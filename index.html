@@ -800,18 +800,18 @@ function desenharMapa(soTempo){
 /* ================= PRÊMIO (motoristas e ajudantes) =================
  * Pontuação 0–100 por pessoa = média ponderada dos indicadores que têm dado (peso redistribuído quando falta dado)
  * + ajustes (elogios, reclamações, advertências). Pesos, mínimo de rotas e nome do programa ficam em Regras (Config 'premio'). */
-const PREMIO_PADRAO={nome:"Entregas Show",minRotas:20,limite:20,
+const PREMIO_PADRAO={nome:"Rota de Ouro Schuh",minRotas:20,limite:20,motorLigadoMin:5,
   mot:{ent100:25,consumo:20,seguranca:15,pontual:10,cuidado:10,assiduidade:10,canhoto:5,roteiro:5},
   aju:{ent100:30,mercadoria:25,caixa:20,assiduidade:15,pontual:10},nomesPonto:{}};
 const IND={ent100:"Entregas 100%",canhoto:"Canhoto no ato",pontual:"Pontualidade",roteiro:"Seguiu o roteiro",consumo:"Consumo (km/l)",
   seguranca:"Direção segura",cuidado:"Cuidado c/ caminhão",mercadoria:"Cuidado c/ mercadoria",caixa:"Organização do caixa",assiduidade:"Assiduidade"};
 const IND_DESC={ent100:"entregas sem ocorrência nem problema ÷ entregas registradas",canhoto:"entregas com foto do canhoto no ato",pontual:"chegadas até 30 min do horário previsto",
   roteiro:"entregas feitas na ordem planejada",consumo:"km/l do motorista × meta do caminhão (ou média do caminhão no período, se não houver meta): 85% = 0; 100% ou mais = nota cheia",
-  seguranca:"perde pontos por multa (leve 3, média 4, grave 5, gravíssima 7; zera com 20)",cuidado:"perde pontos por avaria, acidente com culpa, caminhão sujo",
+  seguranca:"perde pontos por multa (leve 3, média 4, grave 5, gravíssima 7; zera com 20)",cuidado:"perde pontos por avaria, acidente com culpa, caminhão sujo e caminhão parado com o motor ligado além do limite das Regras (−1 por vez)",
   mercadoria:"perde pontos por avaria ou falta de mercadoria",assiduidade:"faltas e atrasos do ponto, média por mês (Secullum: cada dia de falta −5, cada hora de atraso −1) + faltas e atrasos registrados aqui",
   caixa:"perde pontos por caixa da viagem desorganizado (−3), com diferença de valor (−5) ou entregue com atraso (−2)"};
 const TIPOS_OC=[["Multa leve",3,"seguranca"],["Multa média",4,"seguranca"],["Multa grave",5,"seguranca"],["Multa gravíssima",7,"seguranca"],["Excesso de velocidade (rastreador)",2,"seguranca"],["Frenagem / aceleração brusca (rastreador)",1,"seguranca"],
-  ["Avaria no caminhão (descuido)",5,"cuidado"],["Acidente com culpa",15,"cuidado"],["Caminhão sujo / checklist não feito",2,"cuidado"],
+  ["Avaria no caminhão (descuido)",5,"cuidado"],["Acidente com culpa",15,"cuidado"],["Caminhão sujo / checklist não feito",2,"cuidado"],["Parado com motor ligado acima do limite",1,"cuidado"],
   ["Avaria ou falta de mercadoria",5,"mercadoria"],["Caixa desorganizado",3,"caixa"],["Caixa com diferença de valor",5,"caixa"],["Caixa entregue com atraso",2,"caixa"],["Falta injustificada",5,"assiduidade"],["Atraso na saída",2,"assiduidade"],
   ["Reclamação de cliente",-3,"ajuste"],["Advertência",-5,"ajuste"],["Elogio de cliente",3,"ajuste"],["Destaque do mês (gestão)",5,"ajuste"]];
 const premioCfg=()=>{ const c=S.cfg.premio||{}; return {...PREMIO_PADRAO,...c,mot:{...PREMIO_PADRAO.mot,...(c.mot||{})},aju:{...PREMIO_PADRAO.aju,...(c.aju||{})}}; };
@@ -914,6 +914,7 @@ function vPremio(){
       <label class="f"><span class="lbl">Tipo</span><select id="ocTipoP" data-pr="tipo">${TIPOS_OC.map(t=>`<option ${f.tipo===t[0]?"selected":""}>${t[0]}</option>`).join("")}</select></label>
       <div class="grid" style="grid-template-columns:1fr 1fr;gap:10px"><label class="f"><span class="lbl">Pontos (já vem pelo tipo)</span><input id="ocPontos" inputmode="numeric" value="${esc(f.pontos??TIPOS_OC[0][1])}"></label>
       <label class="f"><span class="lbl">Valor R$ (multa/avaria)</span><input id="ocValor" inputmode="decimal" value="${esc(f.valor||"")}"></label></div>
+      <div class="small dim">Motor ligado parado: tolerância de ${premioCfg().motorLigadoMin} min (veja no rastreador: Permanência em ponto / Telemetria). Acima disso, lance "Parado com motor ligado acima do limite".</div>
       <textarea id="ocObsP" placeholder="Detalhes: auto de infração, cliente, o que aconteceu">${esc(f.obs||"")}</textarea>
       <button class="pri" data-a="prSalvarOc">Salvar ocorrência</button>
       <div class="small dim">Multas e avarias tiram pontos do indicador (Direção segura / Cuidado). Elogio e destaque somam direto na nota; reclamação e advertência descontam.</div></div>
@@ -929,7 +930,8 @@ function vPremio(){
     h+=`<div class="grid g2" style="align-items:start"><div class="card grid"><h3>Regras do programa</h3>
       <label class="f"><span class="lbl">Nome do programa</span><input id="prNome" value="${esc(cfg.nome)}"></label>
       <div class="grid" style="grid-template-columns:1fr 1fr;gap:10px"><label class="f"><span class="lbl">Mínimo de rotas no ano</span><input id="prMin" inputmode="numeric" value="${cfg.minRotas}"></label>
-      <label class="f"><span class="lbl">Pontos que zeram um indicador</span><input id="prLim" inputmode="numeric" value="${cfg.limite}"></label></div>
+      <label class="f"><span class="lbl">Pontos que zeram um indicador</span><input id="prLim" inputmode="numeric" value="${cfg.limite}"></label>
+      <label class="f"><span class="lbl">Motor ligado parado: tolerância (min)</span><input id="prMotor" inputmode="numeric" value="${cfg.motorLigadoMin}"></label></div>
       <span class="lbl" style="margin-top:6px">Pesos · Motorista (soma ${soma(cfg.mot)})</span><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px">${ind("mot",cfg.mot)}</div>
       <span class="lbl" style="margin-top:6px">Pesos · Ajudante (soma ${soma(cfg.aju)})</span><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px">${ind("aju",cfg.aju)}</div>
       <span class="lbl" style="margin-top:6px">Meta de km/l por caminhão (deixe vazio para usar a média do período)</span><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px">${(S.cfg.placas||[]).map(pl=>`<label class="f"><span class="lbl">${esc(pl)}</span><input data-meta="${esc(pl)}" inputmode="decimal" value="${esc((cfg.metas||{})[pl]??"")}" placeholder="ex.: 3,2"></label>`).join("")}</div>
@@ -954,7 +956,7 @@ async function acaoPremio(a,el){
     try{ await api("api_salvarOcorrencia",S.token,o); S.pr.f={data:o.data,funcao:o.funcao}; toast("Ocorrência salva."); carregarPremio(); }catch(e){ toast(e.message); } return; }
   if(a==="prExcOc"||a==="prExcAb"){ const k=a==="prExcOc"?"confOc":"confAb", id=el.dataset.id; if(S.pr[k]!==id){ S.pr[k]=id; render(); return; } S.pr[k]=null;
     try{ await api(a==="prExcOc"?"api_excluirOcorrencia":"api_excluirAbastecimento",S.token,id); toast("Excluído."); carregarPremio(); }catch(e){ toast(e.message); } return; }
-  if(a==="prSalvarCfg"){ const c=premioCfg(); c.nome=($("#prNome").value||"Entregas Show").trim(); c.minRotas=Number($("#prMin").value)||0; c.limite=Number($("#prLim").value)||20;
+  if(a==="prSalvarCfg"){ const c=premioCfg(); c.nome=($("#prNome").value||"Entregas Show").trim(); c.minRotas=Number($("#prMin").value)||0; c.limite=Number($("#prLim").value)||20; c.motorLigadoMin=Number($("#prMotor").value)||5;
     document.querySelectorAll("[data-peso]").forEach(i=>{ const [g,k]=i.dataset.peso.split("."); c[g][k]=Number(i.value)||0; });
     c.metas={}; document.querySelectorAll("[data-meta]").forEach(i=>{ const v=numX(i.value); if(v>0) c.metas[i.dataset.meta]=v; });
     c.nomesPonto={}; $("#prNomes").value.split(/\r?\n/).forEach(l=>{ const [a,b]=l.split("="); if(a&&b&&a.trim()&&b.trim()) c.nomesPonto[a.trim()]=b.trim().toUpperCase(); });
