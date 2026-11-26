@@ -808,7 +808,7 @@ const IND={ent100:"Entregas 100%",canhoto:"Canhoto no ato",pontual:"Pontualidade
 const IND_DESC={ent100:"entregas sem ocorrência nem problema ÷ entregas registradas",canhoto:"entregas com foto do canhoto no ato",pontual:"chegadas até 30 min do horário previsto",
   roteiro:"entregas feitas na ordem planejada",consumo:"km/l do motorista × meta do caminhão (ou média do caminhão no período, se não houver meta): 85% = 0; 100% ou mais = nota cheia",
   seguranca:"perde pontos por multa (leve 3, média 4, grave 5, gravíssima 7; zera com 20)",cuidado:"perde pontos por avaria, acidente com culpa, caminhão sujo",
-  mercadoria:"perde pontos por avaria ou falta de mercadoria",assiduidade:"faltas e atrasos do ponto (Secullum: cada dia de falta −5, cada hora de atraso −1) + faltas e atrasos registrados aqui",
+  mercadoria:"perde pontos por avaria ou falta de mercadoria",assiduidade:"faltas e atrasos do ponto, média por mês (Secullum: cada dia de falta −5, cada hora de atraso −1) + faltas e atrasos registrados aqui",
   caixa:"perde pontos por caixa da viagem desorganizado (−3), com diferença de valor (−5) ou entregue com atraso (−2)"};
 const TIPOS_OC=[["Multa leve",3,"seguranca"],["Multa média",4,"seguranca"],["Multa grave",5,"seguranca"],["Multa gravíssima",7,"seguranca"],["Excesso de velocidade (rastreador)",2,"seguranca"],["Frenagem / aceleração brusca (rastreador)",1,"seguranca"],
   ["Avaria no caminhão (descuido)",5,"cuidado"],["Acidente com culpa",15,"cuidado"],["Caminhão sujo / checklist não feito",2,"cuidado"],
@@ -842,8 +842,8 @@ function calcPremio(){
   // ponto do Secullum: liga o nome usado no app ao nome completo (automático pelo 1º nome + inicial; ou pela lista em Regras)
   const pontoNomes=new Set(); Object.values(D.ponto||{}).forEach(c=>Object.keys(c).forEach(n=>pontoNomes.add(n)));
   Object.values(P).forEach(p=>{ const nm=nomeSecullum(p.nome,p.funcao,[...pontoNomes],cfg); p.ponto=nm; if(!nm) return; let fal=0,atr=0;
-    Object.values(D.ponto||{}).forEach(c=>{ const x=c[nm]; if(x){ fal+=x[0]; atr+=x[1]; } }); p.faltasMin=fal; p.atrasoMin=atr;
-    p.oc.assiduidade=(p.oc.assiduidade||0)+Math.round((fal/440*5+atr/60)*10)/10; });
+    let meses=0; Object.values(D.ponto||{}).forEach(c=>{ const x=c[nm]; if(x){ fal+=x[0]; atr+=x[1]; meses++; } }); p.faltasMin=fal; p.atrasoMin=atr;
+    if(meses) p.oc.assiduidade=(p.oc.assiduidade||0)+Math.round((fal/440*5+atr/60)/meses*10)/10; }); // média por mês, para o ano não zerar
   const minR=S.pr.mes?Math.max(1,Math.ceil(cfg.minRotas/12)):cfg.minRotas, lim=cfg.limite||20;
   Object.values(P).forEach(p=>{ const W=p.funcao==="Motorista"?cfg.mot:cfg.aju, v={};
     const q=(a,b)=>b?Math.min(1,a/b):null; v.ent100=q(p.ok100,p.fe); v.canhoto=q(p.canh,p.ent); v.pontual=q(p.pontOk,p.pontN); v.roteiro=q(p.ordOk,p.ordN);
