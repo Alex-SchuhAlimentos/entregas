@@ -800,18 +800,18 @@ function desenharMapa(soTempo){
 /* ================= PRÊMIO (motoristas e ajudantes) =================
  * Pontuação 0–100 por pessoa = média ponderada dos indicadores que têm dado (peso redistribuído quando falta dado)
  * + ajustes (elogios, reclamações, advertências). Pesos, mínimo de rotas e nome do programa ficam em Regras (Config 'premio'). */
-const PREMIO_PADRAO={nome:"Rota de Ouro Schuh",minRotas:20,limite:20,motorLigadoMin:5,
-  mot:{ent100:25,consumo:20,seguranca:15,pontual:10,cuidado:10,assiduidade:10,canhoto:5,roteiro:5},
+const PREMIO_PADRAO={nome:"Rota de Ouro Schuh",minRotas:20,limite:20,motorLigadoMin:5,velMax:90,
+  mot:{ent100:20,consumo:15,velocidade:15,seguranca:10,cuidado:10,assiduidade:10,pontual:10,motor:5,canhoto:3,roteiro:2},
   aju:{ent100:30,mercadoria:25,caixa:20,assiduidade:15,pontual:10},nomesPonto:{}};
 const IND={ent100:"Entregas 100%",canhoto:"Canhoto no ato",pontual:"Pontualidade",roteiro:"Seguiu o roteiro",consumo:"Consumo (km/l)",
-  seguranca:"Direção segura",cuidado:"Cuidado c/ caminhão",mercadoria:"Cuidado c/ mercadoria",caixa:"Organização do caixa",assiduidade:"Assiduidade"};
-const IND_DESC={ent100:"entregas sem ocorrência nem problema ÷ entregas registradas",canhoto:"entregas com foto do canhoto no ato",pontual:"chegadas até 30 min do horário previsto",
+  seguranca:"Direção segura",cuidado:"Cuidado c/ caminhão",mercadoria:"Cuidado c/ mercadoria",caixa:"Organização do caixa",assiduidade:"Assiduidade",velocidade:"Velocidade",motor:"Motor desligado nas paradas"};
+const IND_DESC={velocidade:"dias rodados sem passar da velocidade máxima das Regras (rastreador, automático, dia anterior)",motor:"paradas de 5 min ou mais sem o motor ligado além da tolerância das Regras (rastreador, Relatório de Paradas, automático)",ent100:"entregas sem ocorrência nem problema ÷ entregas registradas",canhoto:"entregas com foto do canhoto no ato",pontual:"chegadas até 30 min do horário previsto",
   roteiro:"entregas feitas na ordem planejada",consumo:"km/l do motorista × meta do caminhão (ou média do caminhão no período, se não houver meta): 85% = 0; 100% ou mais = nota cheia",
-  seguranca:"perde pontos por multa (leve 3, média 4, grave 5, gravíssima 7; zera com 20)",cuidado:"perde pontos por avaria, acidente com culpa, caminhão sujo e caminhão parado com o motor ligado além do limite das Regras (−1 por vez)",
+  seguranca:"perde pontos por multa (leve 3, média 4, grave 5, gravíssima 7; zera com 20)",cuidado:"perde pontos por avaria, acidente com culpa e caminhão sujo / checklist não feito",
   mercadoria:"perde pontos por avaria ou falta de mercadoria",assiduidade:"faltas e atrasos do ponto, média por mês (Secullum: cada dia de falta −5, cada hora de atraso −1) + faltas e atrasos registrados aqui",
   caixa:"perde pontos por caixa da viagem desorganizado (−3), com diferença de valor (−5) ou entregue com atraso (−2)"};
-const TIPOS_OC=[["Multa leve",3,"seguranca"],["Multa média",4,"seguranca"],["Multa grave",5,"seguranca"],["Multa gravíssima",7,"seguranca"],["Excesso de velocidade (rastreador)",2,"seguranca"],["Frenagem / aceleração brusca (rastreador)",1,"seguranca"],
-  ["Avaria no caminhão (descuido)",5,"cuidado"],["Acidente com culpa",15,"cuidado"],["Caminhão sujo / checklist não feito",2,"cuidado"],["Parado com motor ligado acima do limite",1,"cuidado"],
+const TIPOS_OC=[["Multa leve",3,"seguranca"],["Multa média",4,"seguranca"],["Multa grave",5,"seguranca"],["Multa gravíssima",7,"seguranca"],["Frenagem / aceleração brusca (rastreador)",1,"seguranca"],
+  ["Avaria no caminhão (descuido)",5,"cuidado"],["Acidente com culpa",15,"cuidado"],["Caminhão sujo / checklist não feito",2,"cuidado"],
   ["Avaria ou falta de mercadoria",5,"mercadoria"],["Caixa desorganizado",3,"caixa"],["Caixa com diferença de valor",5,"caixa"],["Caixa entregue com atraso",2,"caixa"],["Falta injustificada",5,"assiduidade"],["Atraso na saída",2,"assiduidade"],
   ["Reclamação de cliente",-3,"ajuste"],["Advertência",-5,"ajuste"],["Elogio de cliente",3,"ajuste"],["Destaque do mês (gestão)",5,"ajuste"]];
 const premioCfg=()=>{ const c=S.cfg.premio||{}; return {...PREMIO_PADRAO,...c,mot:{...PREMIO_PADRAO.mot,...(c.mot||{})},aju:{...PREMIO_PADRAO.aju,...(c.aju||{})}}; };
@@ -827,10 +827,14 @@ function consumoIntervalos(ab,ini,fim){ // método do tanque cheio: km rodado de
 function calcPremio(){
   const D=S.pr.D, cfg=premioCfg(), [ini,fim]=periodoPremio(), P={};
   const pessoa=(nome,funcao)=>{ nome=String(nome||"").trim(); if(!nome) return null; const k=funcao+"|"+nome.toLowerCase();
-    return P[k]||(P[k]={nome,funcao,rotas:0,n:0,fe:0,ent:0,ok100:0,canh:0,pontN:0,pontOk:0,ordN:0,ordOk:0,km:0,exp:0,act:0,kmC:0,oc:{},aj:0,itens:[]}); };
+    return P[k]||(P[k]={nome,funcao,rotas:0,n:0,fe:0,ent:0,ok100:0,canh:0,pontN:0,pontOk:0,ordN:0,ordOk:0,km:0,exp:0,act:0,kmC:0,oc:{},aj:0,itens:[],velN:0,velOk:0,velMax:0,parN:0,parLig:0}); };
+  const T=D.tele||{vel:{},velDias:[],par:{}}, velDias=new Set(T.velDias||[]);
   const rotas=D.rotas.filter(r=>S.pr.sim||r.por!=="simulacao");
   rotas.forEach(r=>{ const ps=[pessoa(r.mot,"Motorista"),...String(r.aux||"").split(/\s*[\/,;+]\s*|\s+e\s+/).map(x=>pessoa(x,"Ajudante"))].filter(Boolean);
-    ps.forEach(p=>{ p.rotas++; ["n","fe","ent","ok100","canh","pontN","pontOk","ordN","ordOk"].forEach(k=>p[k]+=r[k]||0); p.km+=r.kmPlan||0; }); });
+    ps.forEach(p=>{ p.rotas++; ["n","fe","ent","ok100","canh","pontN","pontOk","ordN","ordOk"].forEach(k=>p[k]+=r[k]||0); p.km+=r.kmPlan||0; });
+    const pm=pessoa(r.mot,"Motorista"); if(pm){ // rastreador: velocidade máxima do dia e paradas com motor ligado (caminhão da rota)
+      if(velDias.has(r.data)){ const vm=((T.vel[r.data]||{})[r.placa]||[0])[0]; pm.velN++; if(vm<=cfg.velMax) pm.velOk++; pm.velMax=Math.max(pm.velMax,vm); }
+      const par=(T.par[r.data]||{})[r.placa]||[]; pm.parN+=par.length; pm.parLig+=par.filter(x=>x[1]&&x[0]>cfg.motorLigadoMin).length; } });
   const iv=consumoIntervalos(D.abastecimentos,ini,fim).filter(x=>x.ok), media={};
   iv.forEach(x=>{ const m=media[x.placa]||(media[x.placa]={km:0,l:0}); m.km+=x.km; m.l+=x.l; });
   iv.forEach(x=>{ const p=pessoa(x.mot,"Motorista"); if(!p) return; const avgP=Number((cfg.metas||{})[x.placa])||media[x.placa].km/media[x.placa].l; p.exp+=x.km/avgP; p.act+=x.l; p.kmC+=x.km; });
@@ -846,7 +850,7 @@ function calcPremio(){
     if(meses) p.oc.assiduidade=(p.oc.assiduidade||0)+Math.round((fal/440*5+atr/60)/meses*10)/10; }); // média por mês, para o ano não zerar
   const minR=S.pr.mes?Math.max(1,Math.ceil(cfg.minRotas/12)):cfg.minRotas, lim=cfg.limite||20;
   Object.values(P).forEach(p=>{ const W=p.funcao==="Motorista"?cfg.mot:cfg.aju, v={};
-    const q=(a,b)=>b?Math.min(1,a/b):null; v.ent100=q(p.ok100,p.fe); v.canhoto=q(p.canh,p.ent); v.pontual=q(p.pontOk,p.pontN); v.roteiro=q(p.ordOk,p.ordN);
+    const q=(a,b)=>b?Math.min(1,a/b):null; v.ent100=q(p.ok100,p.fe); v.canhoto=q(p.canh,p.ent); v.pontual=q(p.pontOk,p.pontN); v.roteiro=q(p.ordOk,p.ordN); v.velocidade=q(p.velOk,p.velN); v.motor=p.parN?1-p.parLig/p.parN:null;
     p.ratio=p.act>0&&p.kmC>=300?p.exp/p.act:null; v.consumo=p.ratio==null?null:Math.min(1,Math.max(0,(p.ratio-0.85)/0.15));
     ["seguranca","cuidado","mercadoria","caixa","assiduidade"].forEach(k=>{ v[k]=p.rotas?Math.max(0,1-(p.oc[k]||0)/lim):null; });
     let sw=0,sv=0; p.pts={}; Object.entries(W).forEach(([k,w])=>{ if(!w||v[k]==null) return; sw+=w; sv+=w*v[k]; p.pts[k]=v[k]; });
@@ -868,7 +872,7 @@ function tabelaRank(lista,W,minR){
   <div class="tbl"><table><thead><tr><th>#</th><th>Nome</th><th class="n">Pontos</th>${ks.map(k=>`<th class="n hide-m" title="${esc(IND_DESC[k])}">${esc(IND[k])}<div class="dim" style="font-weight:400">peso ${W[k]}</div></th>`).join("")}<th class="n hide-m">Ajustes</th><th class="n">Rotas</th></tr></thead><tbody>
   ${lista.map((p,i)=>`<tr style="${p.eleg?"":"opacity:.55"}"><td class="num">${p.eleg?i+1:"—"}</td><td><b>${esc(p.nome)}</b>${p.eleg?"":`<div class="small dim">abaixo de ${minR} rotas</div>`}${p.ponto===null?`<div class="small dim" title="Ligue em Regras: nome no app = nome no ponto">sem ligação com o ponto</div>`:p.ponto?`<div class="small dim">${esc(p.ponto)}</div>`:""}</td>
     <td class="n"><b style="color:${corNota(p.total)};font-size:16px">${p.total==null?"—":fmtN(p.total,1)}</b></td>
-    ${ks.map(k=>{ const v=p.pts[k]; return `<td class="n hide-m"><span style="color:${corNota(v==null?null:v*100)}">${v==null?"—":fmtN(v*100,0)+"%"}</span>${k==="consumo"&&p.ratio?`<div class="small dim">${fmtN(p.ratio*100,0)}% do esperado</div>`:""}${["seguranca","cuidado","mercadoria","caixa","assiduidade"].includes(k)&&p.oc[k]?`<div class="small dim">−${fmtN(p.oc[k],1)} pts</div>`:""}</td>`; }).join("")}
+    ${ks.map(k=>{ const v=p.pts[k]; return `<td class="n hide-m"><span style="color:${corNota(v==null?null:v*100)}">${v==null?"—":fmtN(v*100,0)+"%"}</span>${k==="velocidade"&&p.velN?`<div class="small dim">máx. ${p.velMax} km/h · ${p.velN-p.velOk} dia(s) acima</div>`:""}${k==="motor"&&p.parN?`<div class="small dim">${p.parLig} de ${p.parN} paradas</div>`:""}${k==="consumo"&&p.ratio?`<div class="small dim">${fmtN(p.ratio*100,0)}% do esperado</div>`:""}${["seguranca","cuidado","mercadoria","caixa","assiduidade"].includes(k)&&p.oc[k]?`<div class="small dim">−${fmtN(p.oc[k],1)} pts</div>`:""}</td>`; }).join("")}
     <td class="n hide-m" style="color:${p.aj>0?"#3ecf8e":p.aj<0?"#f26d6d":"inherit"}">${p.aj?(p.aj>0?"+":"")+p.aj:"—"}</td><td class="n">${p.rotas}</td></tr>`).join("")}
   </tbody></table></div>`; }
 function vPremio(){
@@ -914,7 +918,7 @@ function vPremio(){
       <label class="f"><span class="lbl">Tipo</span><select id="ocTipoP" data-pr="tipo">${TIPOS_OC.map(t=>`<option ${f.tipo===t[0]?"selected":""}>${t[0]}</option>`).join("")}</select></label>
       <div class="grid" style="grid-template-columns:1fr 1fr;gap:10px"><label class="f"><span class="lbl">Pontos (já vem pelo tipo)</span><input id="ocPontos" inputmode="numeric" value="${esc(f.pontos??TIPOS_OC[0][1])}"></label>
       <label class="f"><span class="lbl">Valor R$ (multa/avaria)</span><input id="ocValor" inputmode="decimal" value="${esc(f.valor||"")}"></label></div>
-      <div class="small dim">Motor ligado parado: tolerância de ${premioCfg().motorLigadoMin} min (veja no rastreador: Permanência em ponto / Telemetria). Acima disso, lance "Parado com motor ligado acima do limite".</div>
+      <div class="small dim">Velocidade e motor ligado parado entram sozinhos pelo rastreador (rotina diária). Aqui ficam multas, avarias, caixa, faltas, elogios e reclamações.</div>
       <textarea id="ocObsP" placeholder="Detalhes: auto de infração, cliente, o que aconteceu">${esc(f.obs||"")}</textarea>
       <button class="pri" data-a="prSalvarOc">Salvar ocorrência</button>
       <div class="small dim">Multas e avarias tiram pontos do indicador (Direção segura / Cuidado). Elogio e destaque somam direto na nota; reclamação e advertência descontam.</div></div>
@@ -931,7 +935,8 @@ function vPremio(){
       <label class="f"><span class="lbl">Nome do programa</span><input id="prNome" value="${esc(cfg.nome)}"></label>
       <div class="grid" style="grid-template-columns:1fr 1fr;gap:10px"><label class="f"><span class="lbl">Mínimo de rotas no ano</span><input id="prMin" inputmode="numeric" value="${cfg.minRotas}"></label>
       <label class="f"><span class="lbl">Pontos que zeram um indicador</span><input id="prLim" inputmode="numeric" value="${cfg.limite}"></label>
-      <label class="f"><span class="lbl">Motor ligado parado: tolerância (min)</span><input id="prMotor" inputmode="numeric" value="${cfg.motorLigadoMin}"></label></div>
+      <label class="f"><span class="lbl">Motor ligado parado: tolerância (min)</span><input id="prMotor" inputmode="numeric" value="${cfg.motorLigadoMin}"></label>
+      <label class="f"><span class="lbl">Velocidade máxima (km/h)</span><input id="prVel" inputmode="numeric" value="${cfg.velMax}"></label></div>
       <span class="lbl" style="margin-top:6px">Pesos · Motorista (soma ${soma(cfg.mot)})</span><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px">${ind("mot",cfg.mot)}</div>
       <span class="lbl" style="margin-top:6px">Pesos · Ajudante (soma ${soma(cfg.aju)})</span><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px">${ind("aju",cfg.aju)}</div>
       <span class="lbl" style="margin-top:6px">Meta de km/l por caminhão (deixe vazio para usar a média do período)</span><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px">${(S.cfg.placas||[]).map(pl=>`<label class="f"><span class="lbl">${esc(pl)}</span><input data-meta="${esc(pl)}" inputmode="decimal" value="${esc((cfg.metas||{})[pl]??"")}" placeholder="ex.: 3,2"></label>`).join("")}</div>
@@ -956,7 +961,7 @@ async function acaoPremio(a,el){
     try{ await api("api_salvarOcorrencia",S.token,o); S.pr.f={data:o.data,funcao:o.funcao}; toast("Ocorrência salva."); carregarPremio(); }catch(e){ toast(e.message); } return; }
   if(a==="prExcOc"||a==="prExcAb"){ const k=a==="prExcOc"?"confOc":"confAb", id=el.dataset.id; if(S.pr[k]!==id){ S.pr[k]=id; render(); return; } S.pr[k]=null;
     try{ await api(a==="prExcOc"?"api_excluirOcorrencia":"api_excluirAbastecimento",S.token,id); toast("Excluído."); carregarPremio(); }catch(e){ toast(e.message); } return; }
-  if(a==="prSalvarCfg"){ const c=premioCfg(); c.nome=($("#prNome").value||"Entregas Show").trim(); c.minRotas=Number($("#prMin").value)||0; c.limite=Number($("#prLim").value)||20; c.motorLigadoMin=Number($("#prMotor").value)||5;
+  if(a==="prSalvarCfg"){ const c=premioCfg(); c.nome=($("#prNome").value||"Entregas Show").trim(); c.minRotas=Number($("#prMin").value)||0; c.limite=Number($("#prLim").value)||20; c.motorLigadoMin=Math.max(5,Number($("#prMotor").value)||5); c.velMax=Math.max(80,Number($("#prVel").value)||90);
     document.querySelectorAll("[data-peso]").forEach(i=>{ const [g,k]=i.dataset.peso.split("."); c[g][k]=Number(i.value)||0; });
     c.metas={}; document.querySelectorAll("[data-meta]").forEach(i=>{ const v=numX(i.value); if(v>0) c.metas[i.dataset.meta]=v; });
     c.nomesPonto={}; $("#prNomes").value.split(/\r?\n/).forEach(l=>{ const [a,b]=l.split("="); if(a&&b&&a.trim()&&b.trim()) c.nomesPonto[a.trim()]=b.trim().toUpperCase(); });
